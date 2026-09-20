@@ -132,6 +132,13 @@ DROP POLICY IF EXISTS "Users update own profile" ON public.profiles;
 CREATE POLICY "Users update own profile" ON public.profiles
   FOR UPDATE USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Murabbi update mutarabbi profiles" ON public.profiles;
+CREATE POLICY "Murabbi update mutarabbi profiles" ON public.profiles
+  FOR UPDATE USING (
+    public.get_user_role(auth.uid()) = 'murabbi' AND role = 'mutarabbi'
+  );
+
+
 -- GROUPS POLICIES
 DROP POLICY IF EXISTS "Admin full access to groups" ON public.groups;
 CREATE POLICY "Admin full access to groups" ON public.groups
@@ -216,22 +223,37 @@ RETURNS TRIGGER AS $$
 DECLARE
   raw_role_text TEXT;
   parsed_role public.user_role := 'mutarabbi'::public.user_role;
+  raw_group_id UUID := NULL;
+  raw_created_at TIMESTAMPTZ := NOW();
 BEGIN
   IF NEW.raw_user_meta_data IS NOT NULL THEN
     raw_role_text := NEW.raw_user_meta_data->>'role';
     IF raw_role_text IN ('admin', 'murabbi', 'mutarabbi') THEN
       parsed_role := raw_role_text::public.user_role;
     END IF;
+
+    IF NEW.raw_user_meta_data->>'group_id' IS NOT NULL AND NEW.raw_user_meta_data->>'group_id' != '' THEN
+      raw_group_id := (NEW.raw_user_meta_data->>'group_id')::UUID;
+    END IF;
+
+    IF NEW.raw_user_meta_data->>'created_at' IS NOT NULL AND NEW.raw_user_meta_data->>'created_at' != '' THEN
+      raw_created_at := (NEW.raw_user_meta_data->>'created_at')::TIMESTAMPTZ;
+    END IF;
   END IF;
 
-  INSERT INTO public.profiles (id, full_name, role, updated_at)
+  INSERT INTO public.profiles (id, full_name, role, group_id, created_at, updated_at)
   VALUES (
     NEW.id,
     COALESCE(NULLIF(NEW.raw_user_meta_data->>'full_name', ''), 'User'),
     parsed_role,
+    raw_group_id,
+    raw_created_at,
     NOW()
   )
-  ON CONFLICT (id) DO NOTHING;
+  ON CONFLICT (id) DO UPDATE SET
+    group_id = COALESCE(EXCLUDED.group_id, public.profiles.group_id),
+    created_at = COALESCE(EXCLUDED.created_at, public.profiles.created_at),
+    updated_at = NOW();
 
   RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
