@@ -14,8 +14,46 @@ import { supabase } from "../lib/supabase";
 import { Assignment, Submission } from "../types/database";
 
 export default function AssignmentsScreen() {
-  const { profile } = useAuth();
+  const { profile, activeGroup } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+
+  const fetchAssignments = async () => {
+    setLoading(true);
+    const targetGroupId = activeGroup?.id || profile?.group_id;
+    let query = supabase
+      .from("assignments")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (targetGroupId) {
+      query = query.eq("group_id", targetGroupId);
+    }
+
+    const { data: assignData, error } = await query;
+
+    if (error) {
+      console.error("Error fetching assignments:", error.message);
+    } else if (assignData) {
+      setAssignments(assignData);
+    }
+
+    if (profile?.role === "mutarabbi") {
+      const { data: subData } = await supabase
+        .from("submissions")
+        .select("*")
+        .eq("mutarabbi_id", profile.id);
+
+      if (subData) {
+        const subMap: Record<string, Submission> = {};
+        subData.forEach((sub: Submission) => {
+          subMap[sub.assignment_id] = sub;
+        });
+        setSubmissions(subMap);
+      }
+    }
+    setLoading(false);
+  };
+
   const [submissions, setSubmissions] = useState<Record<string, Submission>>(
     {}
   );
@@ -42,37 +80,7 @@ export default function AssignmentsScreen() {
 
   useEffect(() => {
     fetchAssignments();
-  }, [profile]);
-
-  const fetchAssignments = async () => {
-    setLoading(true);
-    const { data: assignData, error } = await supabase
-      .from("assignments")
-      .select("*")
-      .order("created_at", { ascending: false });
-
-    if (error) {
-      console.error("Error fetching assignments:", error.message);
-    } else if (assignData) {
-      setAssignments(assignData);
-    }
-
-    if (profile?.role === "mutarabbi") {
-      const { data: subData } = await supabase
-        .from("submissions")
-        .select("*")
-        .eq("mutarabbi_id", profile.id);
-
-      if (subData) {
-        const subMap: Record<string, Submission> = {};
-        subData.forEach((sub: Submission) => {
-          subMap[sub.assignment_id] = sub;
-        });
-        setSubmissions(subMap);
-      }
-    }
-    setLoading(false);
-  };
+  }, [profile, activeGroup]);
 
   const handleCreateAssignment = async () => {
     if (!newTitle.trim() || !newDesc.trim() || !profile) {
@@ -86,7 +94,7 @@ export default function AssignmentsScreen() {
       description: newDesc,
       due_date: newDueDate,
       created_by: profile.id,
-      group_id: profile.group_id || null,
+      group_id: activeGroup?.id || profile?.group_id || null,
     });
 
     setLoading(false);

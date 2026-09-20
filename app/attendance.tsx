@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -12,7 +12,7 @@ import {
   View,
 } from "react-native";
 import { useAuth } from "../context/auth-context";
-import { supabase } from "../lib/supabase";
+import { supabase, supabaseAdmin } from "../lib/supabase";
 import { AttendanceRecord, Profile } from "../types/database";
 
 interface AttendanceItem {
@@ -26,7 +26,7 @@ export default function AttendanceScreen() {
   const [students, setStudents] = useState<AttendanceItem[]>([]);
   const [myHistory, setMyHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
-  
+
   const todayStr = new Date().toISOString().split("T")[0];
   const [selectedDate, setSelectedDate] = useState(todayStr);
 
@@ -35,10 +35,16 @@ export default function AttendanceScreen() {
 
   // Add Mutarabbi Modal state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [unassignedMutarabbis, setUnassignedMutarabbis] = useState<Profile[]>([]);
+  const [unassignedMutarabbis, setUnassignedMutarabbis] = useState<Profile[]>(
+    [],
+  );
   const [newMutarabbiName, setNewMutarabbiName] = useState("");
+  const [newMutarabbiEmail, setNewMutarabbiEmail] = useState("");
+  const [newMutarabbiPassword, setNewMutarabbiPassword] = useState("");
   const [newMutarabbiJoinDate, setNewMutarabbiJoinDate] = useState(todayStr);
-  const [selectedExistingId, setSelectedExistingId] = useState<string | null>(null);
+  const [selectedExistingId, setSelectedExistingId] = useState<string | null>(
+    null,
+  );
 
   const isMurabbiOrAdmin =
     profile?.role === "murabbi" || profile?.role === "admin";
@@ -75,10 +81,16 @@ export default function AttendanceScreen() {
       return joinDate <= selectedDate;
     });
 
-    const { data: attendance } = await supabase
+    let attendanceQuery = supabase
       .from("attendance_records")
       .select("*")
       .eq("session_date", selectedDate);
+
+    if (targetGroupId) {
+      attendanceQuery = attendanceQuery.eq("group_id", targetGroupId);
+    }
+
+    const { data: attendance } = await attendanceQuery;
 
     const initialMap = validMembers.map((m: Profile) => {
       const record = attendance?.find((a) => a.mutarabbi_id === m.id);
@@ -111,18 +123,26 @@ export default function AttendanceScreen() {
   };
 
   const openAddMutarabbiModal = async () => {
-    // Fetch unassigned or other group Mutarabbi profiles to add
     const targetGroupId = activeGroup?.id || profile?.group_id;
+    if (!targetGroupId) {
+      Alert.alert("Error", "No active Usrah group selected. Please select a group at the top bar first.");
+      return;
+    }
+
     const { data } = await supabase
       .from("profiles")
       .select("*")
       .eq("role", "mutarabbi");
 
     if (data) {
-      const unassigned = data.filter((p: Profile) => p.group_id !== targetGroupId);
+      const unassigned = data.filter(
+        (p: Profile) => p.group_id !== targetGroupId,
+      );
       setUnassignedMutarabbis(unassigned);
     }
     setNewMutarabbiName("");
+    setNewMutarabbiEmail("");
+    setNewMutarabbiPassword("");
     setNewMutarabbiJoinDate(selectedDate);
     setSelectedExistingId(null);
     setShowAddModal(true);
@@ -130,6 +150,7 @@ export default function AttendanceScreen() {
 
   const handleAddExistingMutarabbi = async (mutarabbiId: string) => {
     const targetGroupId = activeGroup?.id || profile?.group_id;
+    console.log("[AuthContext] Active Usrah Group:", targetGroupId);
     if (!targetGroupId) {
       Alert.alert("Error", "No active group selected.");
       return;
@@ -143,6 +164,19 @@ export default function AttendanceScreen() {
     if (error) {
       Alert.alert("Error", error.message);
     } else {
+      const addedProfile = unassignedMutarabbis.find(
+        (p) => p.id === mutarabbiId,
+      );
+      if (addedProfile) {
+        const updatedProfile = { ...addedProfile, group_id: targetGroupId };
+        setStudents((prev) => {
+          if (prev.some((s) => s.mutarabbi.id === mutarabbiId)) return prev;
+          return [
+            ...prev,
+            { mutarabbi: updatedProfile, isPresent: false, notes: "" },
+          ];
+        });
+      }
       Alert.alert("Success", "Mutarabbi added to group.");
       setShowAddModal(false);
       loadGroupMembers();
@@ -154,7 +188,23 @@ export default function AttendanceScreen() {
       Alert.alert("Validation", "Please enter Mutarabbi full name.");
       return;
     }
+    if (!newMutarabbiEmail.trim()) {
+      Alert.alert("Validation", "Please enter Email address.");
+      return;
+    }
+    if (!newMutarabbiPassword.trim()) {
+      Alert.alert("Validation", "Please enter a password for the student.");
+      return;
+    }
+
     const targetGroupId = activeGroup?.id || profile?.group_id;
+    if (!targetGroupId) {
+      Alert.alert("Error", "No active group selected. Please select a group first.");
+      return;
+    }
+
+    setLoading(true);
+    const joinIso = new Date(newMutarabbiJoinDate).toISOString();
 
     const generateUUID = () => {
       return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -164,26 +214,84 @@ export default function AttendanceScreen() {
       });
     };
 
-    // Create a new Mutarabbi profile entry
-    const newId = generateUUID();
-    const joinIso = new Date(newMutarabbiJoinDate).toISOString();
+    console.log("data: ", {
+      email: newMutarabbiEmail.trim(),
+      password: newMutarabbiPassword.trim(),
+      options: {
+        data: {
+          full_name: newMutarabbiName.trim(),
+          role: "mutarabbi",
+          group_id: targetGroupId,
+          created_at: joinIso,
+        },
+      },
+    });
+    // Sign up new user via Supabase Auth (using secondary client to preserve active Murabbi session)
+    const { data: signUpData, error: authError } =
+      await supabaseAdmin.auth.signUp({
+        email: newMutarabbiEmail.trim(),
+        password: newMutarabbiPassword.trim(),
+        options: {
+          data: {
+            full_name: newMutarabbiName.trim(),
+            role: "mutarabbi",
+            group_id: targetGroupId,
+            created_at: joinIso,
+          },
+        },
+      });
 
-    const { error } = await supabase.from("profiles").insert({
-      id: newId,
+    if (authError) {
+      setLoading(false);
+      Alert.alert("Registration Error", authError.message);
+      return;
+    }
+
+    const userId = signUpData?.user?.id || generateUUID();
+    if (signUpData?.user?.id) {
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          group_id: targetGroupId,
+          created_at: joinIso,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", userId);
+
+      if (profileError) {
+        console.warn("Client profile sync note:", profileError.message);
+      }
+    }
+
+    // Instantly append new Mutarabbi to local state array so they appear immediately in UI
+    const newStudentProfile: Profile = {
+      id: userId,
       full_name: newMutarabbiName.trim(),
       role: "mutarabbi",
-      group_id: targetGroupId,
+      group_id: targetGroupId || null,
+      avatar_url: null,
       created_at: joinIso,
       updated_at: new Date().toISOString(),
+    };
+
+    setStudents((prev) => {
+      if (prev.some((s) => s.mutarabbi.id === userId)) return prev;
+      return [
+        ...prev,
+        { mutarabbi: newStudentProfile, isPresent: false, notes: "" },
+      ];
     });
 
-    if (error) {
-      Alert.alert("Error", error.message);
-    } else {
-      Alert.alert("Success", `Created and added ${newMutarabbiName.trim()} to group.`);
-      setShowAddModal(false);
-      loadGroupMembers();
-    }
+    setLoading(false);
+    Alert.alert(
+      "Success",
+      `Registered and added ${newMutarabbiName.trim()} to group.`,
+    );
+    setShowAddModal(false);
+    setNewMutarabbiName("");
+    setNewMutarabbiEmail("");
+    setNewMutarabbiPassword("");
+    loadGroupMembers();
   };
 
   const toggleAttendance = (index: number) => {
@@ -206,14 +314,20 @@ export default function AttendanceScreen() {
     }
     setLoading(true);
 
-    const payload = students.map((item) => ({
-      mutarabbi_id: item.mutarabbi.id,
-      group_id: activeGroup?.id || item.mutarabbi.group_id || profile.group_id,
-      marked_by: profile.id,
-      session_date: selectedDate,
-      is_present: item.isPresent,
-      notes: item.notes || null,
-    }));
+    const targetGroupId = activeGroup?.id || profile?.group_id;
+
+    const payload = students.map((item) => {
+      const gid =
+        targetGroupId || item.mutarabbi.group_id || profile?.group_id || null;
+      return {
+        mutarabbi_id: item.mutarabbi.id,
+        group_id: gid,
+        marked_by: profile.id,
+        session_date: selectedDate,
+        is_present: item.isPresent,
+        notes: item.notes || null,
+      };
+    });
 
     const { error } = await supabase
       .from("attendance_records")
@@ -275,7 +389,7 @@ export default function AttendanceScreen() {
           >
             {d}
           </Text>
-        </Pressable>
+        </Pressable>,
       );
     }
 
@@ -286,7 +400,7 @@ export default function AttendanceScreen() {
     const next = new Date(
       currentCalendarMonth.getFullYear(),
       currentCalendarMonth.getMonth() + offset,
-      1
+      1,
     );
     setCurrentCalendarMonth(next);
   };
@@ -332,7 +446,7 @@ export default function AttendanceScreen() {
 
       <View style={styles.dateBannerCard}>
         <Text style={styles.dateLabel}>Session Date:</Text>
-        
+
         <Pressable
           style={styles.calendarPickerBtn}
           onPress={() => setShowCalendarModal(true)}
@@ -343,10 +457,7 @@ export default function AttendanceScreen() {
         </Pressable>
 
         <View style={styles.quickNavRow}>
-          <Pressable
-            style={styles.quickNavBtn}
-            onPress={() => changeWeek(-7)}
-          >
+          <Pressable style={styles.quickNavBtn} onPress={() => changeWeek(-7)}>
             <Text style={styles.quickNavText}>‹ Prev Week</Text>
           </Pressable>
           <Pressable
@@ -355,10 +466,7 @@ export default function AttendanceScreen() {
           >
             <Text style={styles.quickNavTextToday}>Today</Text>
           </Pressable>
-          <Pressable
-            style={styles.quickNavBtn}
-            onPress={() => changeWeek(7)}
-          >
+          <Pressable style={styles.quickNavBtn} onPress={() => changeWeek(7)}>
             <Text style={styles.quickNavText}>Next Week ›</Text>
           </Pressable>
         </View>
@@ -403,7 +511,9 @@ export default function AttendanceScreen() {
             style={styles.addMutarabbiBtn}
             onPress={openAddMutarabbiModal}
           >
-            <Text style={styles.addMutarabbiBtnText}>+ Add Mutarabbi to Group</Text>
+            <Text style={styles.addMutarabbiBtnText}>
+              + Add Mutarabbi to Group
+            </Text>
           </Pressable>
         }
       />
@@ -485,14 +595,17 @@ export default function AttendanceScreen() {
 
             <ScrollView style={styles.addModalScrollView}>
               {/* Option A: Select Unassigned Mutarabbi */}
-              <Text style={styles.fieldLabel}>Option 1: Add Existing Mutarabbi</Text>
+              <Text style={styles.fieldLabel}>
+                Option 1: Add Existing Mutarabbi
+              </Text>
               {unassignedMutarabbis.length > 0 ? (
                 unassignedMutarabbis.map((unm) => (
                   <Pressable
                     key={unm.id}
                     style={[
                       styles.unassignedRow,
-                      selectedExistingId === unm.id && styles.unassignedRowSelected,
+                      selectedExistingId === unm.id &&
+                        styles.unassignedRowSelected,
                     ]}
                     onPress={() => handleAddExistingMutarabbi(unm.id)}
                   >
@@ -506,16 +619,37 @@ export default function AttendanceScreen() {
                 </Text>
               )}
 
-              {/* Option B: Create New Mutarabbi */}
+              {/* Option B: Register New Mutarabbi User */}
               <View style={styles.divider} />
-              <Text style={styles.fieldLabel}>Option 2: Register New Mutarabbi</Text>
-              
+              <Text style={styles.fieldLabel}>
+                Option 2: Register New Mutarabbi Account
+              </Text>
+
               <Text style={styles.subFieldLabel}>Full Name</Text>
               <TextInput
                 style={styles.modalInput}
                 placeholder="Enter Mutarabbi full name"
                 value={newMutarabbiName}
                 onChangeText={setNewMutarabbiName}
+              />
+
+              <Text style={styles.subFieldLabel}>Email Address</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="student@example.com"
+                value={newMutarabbiEmail}
+                onChangeText={setNewMutarabbiEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+
+              <Text style={styles.subFieldLabel}>Account Password</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Initial password"
+                value={newMutarabbiPassword}
+                onChangeText={setNewMutarabbiPassword}
+                secureTextEntry
               />
 
               <Text style={styles.subFieldLabel}>Join Date (YYYY-MM-DD)</Text>
@@ -531,7 +665,7 @@ export default function AttendanceScreen() {
                 onPress={handleCreateNewMutarabbi}
               >
                 <Text style={styles.createMutarabbiBtnText}>
-                  Create & Add Mutarabbi
+                  Register & Add Mutarabbi
                 </Text>
               </Pressable>
             </ScrollView>
@@ -565,7 +699,12 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 16,
   },
-  dateLabel: { fontSize: 12, fontWeight: "600", color: "#2b6cb0", marginBottom: 4 },
+  dateLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#2b6cb0",
+    marginBottom: 4,
+  },
   calendarPickerBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -578,7 +717,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   calendarPickerIcon: { fontSize: 18 },
-  calendarPickerText: { fontSize: 16, fontWeight: "bold", color: "#2d3748", flex: 1 },
+  calendarPickerText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#2d3748",
+    flex: 1,
+  },
   calendarPickerHint: { fontSize: 12, color: "#2b6cb0", fontWeight: "600" },
   quickNavRow: { flexDirection: "row", gap: 8, marginTop: 10 },
   quickNavBtn: {
@@ -708,7 +852,12 @@ const styles = StyleSheet.create({
   },
   unassignedName: { fontSize: 14, color: "#2d3748" },
   addSelectBtnText: { fontSize: 12, fontWeight: "bold", color: "#2b6cb0" },
-  noUnassignedText: { fontSize: 12, color: "#a0aec0", fontStyle: "italic", marginBottom: 10 },
+  noUnassignedText: {
+    fontSize: 12,
+    color: "#a0aec0",
+    fontStyle: "italic",
+    marginBottom: 10,
+  },
   divider: { height: 1, backgroundColor: "#e2e8f0", marginVertical: 12 },
   modalInput: {
     borderWidth: 1,
@@ -718,6 +867,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     fontSize: 14,
     backgroundColor: "#fff",
+    marginBottom: 4,
   },
   createMutarabbiBtn: {
     backgroundColor: "#2b6cb0",
