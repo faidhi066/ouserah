@@ -1,5 +1,8 @@
+import * as ImagePicker from "expo-image-picker";
+import { Image } from "expo-image";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   Pressable,
@@ -11,6 +14,7 @@ import {
 } from "react-native";
 import { useAuth } from "../context/auth-context";
 import { supabase } from "../lib/supabase";
+import { getInitials } from "../lib/utils";
 import { Profile, UserRole } from "../types/database";
 
 export default function ProfileScreen() {
@@ -18,6 +22,7 @@ export default function ProfileScreen() {
   const [fullName, setFullName] = useState(profile?.full_name || "");
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || "");
   const [updating, setUpdating] = useState(false);
+  const [pickingImage, setPickingImage] = useState(false);
 
   const [allProfiles, setAllProfiles] = useState<Profile[]>([]);
   const [selectedUser, setSelectedUser] = useState<Profile | null>(null);
@@ -48,13 +53,131 @@ export default function ProfileScreen() {
     }
   };
 
+  const handlePickFromLibrary = async (isForAdminTarget = false) => {
+    try {
+      setPickingImage(true);
+      const permissionResult =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        Alert.alert(
+          "Permission Required",
+          "Permission to access camera roll is required to select a profile picture.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageUri = asset.base64
+          ? `data:image/jpeg;base64,${asset.base64}`
+          : asset.uri;
+
+        if (isForAdminTarget) {
+          setTargetAvatar(imageUri);
+        } else {
+          setAvatarUrl(imageUri);
+        }
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Failed to pick image");
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
+  const handleTakePhoto = async (isForAdminTarget = false) => {
+    try {
+      setPickingImage(true);
+      const permissionResult =
+        await ImagePicker.requestCameraPermissionsAsync();
+
+      if (!permissionResult.granted) {
+        Alert.alert(
+          "Permission Required",
+          "Permission to access camera is required to take a profile photo.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        const imageUri = asset.base64
+          ? `data:image/jpeg;base64,${asset.base64}`
+          : asset.uri;
+
+        if (isForAdminTarget) {
+          setTargetAvatar(imageUri);
+        } else {
+          setAvatarUrl(imageUri);
+        }
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Failed to take photo");
+    } finally {
+      setPickingImage(false);
+    }
+  };
+
+  const handleOpenPhotoOptions = (isForAdminTarget = false) => {
+    const currentUrl = isForAdminTarget ? targetAvatar : avatarUrl;
+    Alert.alert(
+      "Profile Photo",
+      "Upload a profile picture or remove it to use your initial.",
+      [
+        {
+          text: "Choose from Library",
+          onPress: () => handlePickFromLibrary(isForAdminTarget),
+        },
+        {
+          text: "Take Photo",
+          onPress: () => handleTakePhoto(isForAdminTarget),
+        },
+        ...(currentUrl
+          ? [
+              {
+                text: "Remove Photo (Use Initial)",
+                style: "destructive" as const,
+                onPress: () => {
+                  if (isForAdminTarget) {
+                    setTargetAvatar("");
+                  } else {
+                    setAvatarUrl("");
+                  }
+                },
+              },
+            ]
+          : []),
+        {
+          text: "Cancel",
+          style: "cancel" as const,
+        },
+      ],
+    );
+  };
+
   const handleUpdateOwnProfile = async () => {
     if (!profile) return;
     setUpdating(true);
 
     const updates: Record<string, any> = {
       id: profile.id,
-      avatar_url: avatarUrl,
+      avatar_url: avatarUrl || null,
       updated_at: new Date().toISOString(),
     };
 
@@ -62,7 +185,10 @@ export default function ProfileScreen() {
       updates.full_name = fullName;
     }
 
-    const { error } = await supabase.from("profiles").upsert(updates);
+    const { error } = await supabase
+      .from("profiles")
+      .update(updates)
+      .eq("id", profile.id);
 
     setUpdating(false);
 
@@ -86,12 +212,15 @@ export default function ProfileScreen() {
     if (!selectedUser) return;
     setUpdating(true);
 
-    const { error } = await supabase.from("profiles").update({
-      full_name: targetName,
-      role: targetRole,
-      avatar_url: targetAvatar,
-      updated_at: new Date().toISOString(),
-    }).eq("id", selectedUser.id);
+    const { error } = await supabase
+      .from("profiles")
+      .update({
+        full_name: targetName,
+        role: targetRole,
+        avatar_url: targetAvatar || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", selectedUser.id);
 
     setUpdating(false);
 
@@ -109,10 +238,61 @@ export default function ProfileScreen() {
       <ScrollView style={styles.scrollView}>
         <Text style={styles.header}>Profile Settings</Text>
         <Text style={styles.roleTag}>
-          Your Role: <Text style={styles.boldRole}>{profile?.role.toUpperCase()}</Text>
+          Your Role:{" "}
+          <Text style={styles.boldRole}>{profile?.role.toUpperCase()}</Text>
         </Text>
 
         <View style={styles.section}>
+          {/* Avatar / Profile Picture Section */}
+          <View style={styles.avatarCard}>
+            <View style={styles.avatarWrapper}>
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.avatarImage}
+                  contentFit="cover"
+                />
+              ) : (
+                <View style={styles.avatarInitialBox}>
+                  <Text style={styles.avatarInitialText}>
+                    {getInitials(fullName)}
+                  </Text>
+                </View>
+              )}
+              {pickingImage && (
+                <View style={styles.avatarLoadingOverlay}>
+                  <ActivityIndicator color="#fff" size="small" />
+                </View>
+              )}
+            </View>
+
+            <View style={styles.avatarActions}>
+              <Pressable
+                style={styles.changePhotoBtn}
+                onPress={() => handleOpenPhotoOptions(false)}
+                disabled={pickingImage || updating}
+              >
+                <Text style={styles.changePhotoBtnText}>
+                  {avatarUrl ? "📷 Change Photo" : "📷 Upload Photo"}
+                </Text>
+              </Pressable>
+
+              {avatarUrl ? (
+                <Pressable
+                  style={styles.removePhotoBtn}
+                  onPress={() => setAvatarUrl("")}
+                  disabled={pickingImage || updating}
+                >
+                  <Text style={styles.removePhotoBtnText}>Remove Photo</Text>
+                </Pressable>
+              ) : (
+                <Text style={styles.avatarHintText}>
+                  Default: Initial ({getInitials(fullName)})
+                </Text>
+              )}
+            </View>
+          </View>
+
           <Text style={styles.label}>Full Name</Text>
           <TextInput
             value={fullName}
@@ -126,22 +306,19 @@ export default function ProfileScreen() {
             </Text>
           )}
 
-          <Text style={styles.label}>Avatar URL</Text>
-          <TextInput
-            value={avatarUrl}
-            onChangeText={setAvatarUrl}
-            placeholder="https://..."
-            style={styles.input}
-          />
-
           <Pressable
-            style={[styles.button, updating && styles.disabledButton]}
+            style={[
+              styles.button,
+              (updating || pickingImage) && styles.disabledButton,
+            ]}
             onPress={handleUpdateOwnProfile}
-            disabled={updating}
+            disabled={updating || pickingImage}
           >
-            <Text style={styles.buttonText}>
-              {updating ? "Saving..." : "Save Profile"}
-            </Text>
+            {updating ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <Text style={styles.buttonText}>Save Profile</Text>
+            )}
           </Pressable>
         </View>
 
@@ -158,9 +335,24 @@ export default function ProfileScreen() {
                 style={styles.userCard}
                 onPress={() => openAdminEditUser(user)}
               >
-                <View>
-                  <Text style={styles.userName}>{user.full_name}</Text>
-                  <Text style={styles.userRole}>Role: {user.role}</Text>
+                <View style={styles.userCardLeft}>
+                  {user.avatar_url ? (
+                    <Image
+                      source={{ uri: user.avatar_url }}
+                      style={styles.userCardAvatar}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.userCardInitialBox}>
+                      <Text style={styles.userCardInitialText}>
+                        {getInitials(user.full_name)}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.userCardInfo}>
+                    <Text style={styles.userName}>{user.full_name}</Text>
+                    <Text style={styles.userRole}>Role: {user.role}</Text>
+                  </View>
                 </View>
                 <Text style={styles.editAction}>Edit →</Text>
               </Pressable>
@@ -176,6 +368,43 @@ export default function ProfileScreen() {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <Text style={styles.modalTitle}>Edit User Profile</Text>
+
+              {/* Admin target user avatar preview and change */}
+              <View style={styles.modalAvatarCard}>
+                <View style={styles.modalAvatarWrapper}>
+                  {targetAvatar ? (
+                    <Image
+                      source={{ uri: targetAvatar }}
+                      style={styles.modalAvatarImage}
+                      contentFit="cover"
+                    />
+                  ) : (
+                    <View style={styles.modalAvatarInitialBox}>
+                      <Text style={styles.modalAvatarInitialText}>
+                        {getInitials(targetName)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <View style={styles.modalAvatarActions}>
+                  <Pressable
+                    style={styles.modalUploadBtn}
+                    onPress={() => handleOpenPhotoOptions(true)}
+                  >
+                    <Text style={styles.modalUploadBtnText}>
+                      {targetAvatar ? "Change Photo" : "Upload Photo"}
+                    </Text>
+                  </Pressable>
+                  {targetAvatar ? (
+                    <Pressable
+                      style={styles.modalRemoveBtn}
+                      onPress={() => setTargetAvatar("")}
+                    >
+                      <Text style={styles.modalRemoveBtnText}>Remove</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              </View>
 
               <Text style={styles.label}>Full Name</Text>
               <TextInput
@@ -207,13 +436,6 @@ export default function ProfileScreen() {
                 ))}
               </View>
 
-              <Text style={styles.label}>Avatar URL</Text>
-              <TextInput
-                style={styles.input}
-                value={targetAvatar}
-                onChangeText={setTargetAvatar}
-              />
-
               <View style={styles.modalActions}>
                 <Pressable
                   style={styles.cancelBtn}
@@ -221,7 +443,10 @@ export default function ProfileScreen() {
                 >
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </Pressable>
-                <Pressable style={styles.saveBtn} onPress={handleAdminSaveUser}>
+                <Pressable
+                  style={styles.saveBtn}
+                  onPress={handleAdminSaveUser}
+                >
                   <Text style={styles.saveBtnText}>Save Changes</Text>
                 </Pressable>
               </View>
@@ -240,17 +465,96 @@ const styles = StyleSheet.create({
   roleTag: { fontSize: 14, color: "#666", marginBottom: 20, marginTop: 4 },
   boldRole: { fontWeight: "bold", color: "#2b6cb0" },
   section: { marginBottom: 30 },
+
+  // Avatar Section
+  avatarCard: {
+    alignItems: "center",
+    paddingVertical: 18,
+    paddingHorizontal: 16,
+    backgroundColor: "#f7fafc",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    marginBottom: 20,
+  },
+  avatarWrapper: {
+    position: "relative",
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    overflow: "hidden",
+    backgroundColor: "#edf2f7",
+    borderWidth: 3,
+    borderColor: "#2b6cb0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 48,
+  },
+  avatarInitialBox: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#2b6cb0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarInitialText: {
+    color: "#fff",
+    fontSize: 40,
+    fontWeight: "bold",
+  },
+  avatarLoadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  avatarActions: {
+    alignItems: "center",
+    marginTop: 14,
+    gap: 8,
+  },
+  changePhotoBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 8,
+    backgroundColor: "#2b6cb0",
+    borderRadius: 20,
+  },
+  changePhotoBtnText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "bold",
+  },
+  removePhotoBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  removePhotoBtnText: {
+    color: "#e53e3e",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  avatarHintText: {
+    fontSize: 12,
+    color: "#718096",
+    fontStyle: "italic",
+  },
+
   label: { fontSize: 14, fontWeight: "600", marginTop: 12, color: "#2d3748" },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    padding: 10,
-    marginTop: 4,
-    fontSize: 15,
+    borderColor: "#cbd5e0",
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    marginTop: 6,
+    backgroundColor: "#fff",
   },
-  disabledInput: { backgroundColor: "#f5f5f5", color: "#777" },
-  hint: { fontSize: 12, color: "#d9534f", marginTop: 4 },
+  disabledInput: { backgroundColor: "#edf2f7", color: "#718096" },
+  hint: { fontSize: 12, color: "#e53e3e", marginTop: 4 },
   button: {
     backgroundColor: "#2b6cb0",
     padding: 14,
@@ -260,28 +564,58 @@ const styles = StyleSheet.create({
   },
   disabledButton: { opacity: 0.6 },
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+
   adminSection: {
     borderTopWidth: 1,
     borderColor: "#e2e8f0",
     paddingTop: 20,
-    marginBottom: 30,
+    marginBottom: 20,
   },
   adminTitle: { fontSize: 18, fontWeight: "bold", color: "#2d3748" },
   adminSubtitle: { fontSize: 12, color: "#718096", marginBottom: 16 },
+
+  // User list cards
   userCard: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    padding: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    borderRadius: 8,
+    borderRadius: 10,
     marginBottom: 10,
     backgroundColor: "#f7fafc",
   },
-  userName: { fontSize: 16, fontWeight: "600" },
-  userRole: { fontSize: 12, color: "#4a5568" },
+  userCardLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  userCardAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+  },
+  userCardInitialBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#2b6cb0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  userCardInitialText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 18,
+  },
+  userCardInfo: {
+    justifyContent: "center",
+  },
+  userName: { fontSize: 15, fontWeight: "600", color: "#2d3748" },
+  userRole: { fontSize: 12, color: "#718096", textTransform: "capitalize" },
   editAction: { color: "#2b6cb0", fontWeight: "bold" },
+
   signOutButton: {
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -292,6 +626,8 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   signOutText: { color: "#e53e3e", fontWeight: "bold", fontSize: 16 },
+
+  // Modal styles
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -303,18 +639,83 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 20,
   },
-  modalTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 12 },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 12,
+    color: "#2d3748",
+  },
+
+  modalAvatarCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 16,
+    padding: 12,
+    backgroundColor: "#f7fafc",
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  modalAvatarWrapper: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    overflow: "hidden",
+  },
+  modalAvatarImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+  },
+  modalAvatarInitialBox: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#2b6cb0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalAvatarInitialText: {
+    color: "#fff",
+    fontSize: 24,
+    fontWeight: "bold",
+  },
+  modalAvatarActions: {
+    flex: 1,
+    gap: 6,
+  },
+  modalUploadBtn: {
+    backgroundColor: "#2b6cb0",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    alignSelf: "flex-start",
+  },
+  modalUploadBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  modalRemoveBtn: {
+    paddingVertical: 2,
+    alignSelf: "flex-start",
+  },
+  modalRemoveBtnText: {
+    color: "#e53e3e",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
   roleRow: { flexDirection: "row", gap: 8, marginTop: 4 },
   roleBtn: {
     flex: 1,
-    padding: 8,
+    padding: 10,
     borderWidth: 1,
     borderColor: "#cbd5e0",
     borderRadius: 6,
     alignItems: "center",
   },
   selectedRoleBtn: { backgroundColor: "#2b6cb0", borderColor: "#2b6cb0" },
-  roleBtnText: { fontSize: 12, color: "#4a5568" },
+  roleBtnText: { textTransform: "capitalize", color: "#4a5568" },
   selectedRoleBtnText: { color: "#fff", fontWeight: "bold" },
   modalActions: {
     flexDirection: "row",
@@ -322,13 +723,8 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 20,
   },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
-  cancelBtnText: { color: "#718096", fontWeight: "600" },
-  saveBtn: {
-    backgroundColor: "#2b6cb0",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 6,
-  },
+  cancelBtn: { padding: 10 },
+  cancelBtnText: { color: "#718096" },
+  saveBtn: { backgroundColor: "#2b6cb0", padding: 10, borderRadius: 6 },
   saveBtnText: { color: "#fff", fontWeight: "bold" },
 });

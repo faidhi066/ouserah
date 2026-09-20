@@ -1,7 +1,9 @@
 import { useAuth } from "@/context/auth-context";
+import { getInitials } from "@/lib/utils";
 import { Group } from "@/types/database";
 import { useRouter } from "expo-router";
 import { useState } from "react";
+import { Image } from "expo-image";
 import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -63,14 +65,16 @@ export function HeaderTopBar() {
             style={styles.profileButton}
             onPress={() => router.push("/profile-editing")}
           >
-            {profile?.avatar_url ? (
-              <Text style={styles.avatarText}>👤</Text>
+            {profile?.avatar_url?.trim() ? (
+              <Image
+                source={{ uri: profile.avatar_url }}
+                style={styles.profileAvatarImage}
+                contentFit="cover"
+              />
             ) : (
               <View style={styles.profileInitialsBox}>
                 <Text style={styles.profileInitialsText}>
-                  {profile?.full_name
-                    ? profile.full_name.charAt(0).toUpperCase()
-                    : "U"}
+                  {getInitials(profile?.full_name)}
                 </Text>
               </View>
             )}
@@ -202,6 +206,11 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     overflow: "hidden",
+  },
+  profileAvatarImage: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   avatarText: { fontSize: 24, textAlign: "center" },
   profileInitialsBox: {

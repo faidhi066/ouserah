@@ -11,8 +11,10 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Image } from "expo-image";
 import { useAuth } from "../context/auth-context";
 import { supabase, supabaseAdmin } from "../lib/supabase";
+import { getInitials } from "../lib/utils";
 import { AttendanceRecord, Profile } from "../types/database";
 
 interface AttendanceItem {
@@ -481,12 +483,27 @@ export default function AttendanceScreen() {
           <View style={styles.card}>
             <View style={styles.row}>
               <View style={styles.nameRow}>
-                <Text style={styles.name}>{item.mutarabbi.full_name}</Text>
-                {item.mutarabbi.created_at && (
-                  <Text style={styles.joinDateSubText}>
-                    Joined: {item.mutarabbi.created_at.split("T")[0]}
-                  </Text>
+                {item.mutarabbi.avatar_url?.trim() ? (
+                  <Image
+                    source={{ uri: item.mutarabbi.avatar_url }}
+                    style={styles.studentAvatar}
+                    contentFit="cover"
+                  />
+                ) : (
+                  <View style={styles.studentInitialBox}>
+                    <Text style={styles.studentInitialText}>
+                      {getInitials(item.mutarabbi.full_name)}
+                    </Text>
+                  </View>
                 )}
+                <View>
+                  <Text style={styles.name}>{item.mutarabbi.full_name}</Text>
+                  {item.mutarabbi.created_at && (
+                    <Text style={styles.joinDateSubText}>
+                      Joined: {item.mutarabbi.created_at.split("T")[0]}
+                    </Text>
+                  )}
+                </View>
               </View>
               <Switch
                 value={item.isPresent}
@@ -754,7 +771,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  nameRow: { flex: 1 },
+  nameRow: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
+  studentAvatar: { width: 36, height: 36, borderRadius: 18 },
+  studentInitialBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#2b6cb0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  studentInitialText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
   name: { fontSize: 16, fontWeight: "600", color: "#2d3748" },
   joinDateSubText: { fontSize: 11, color: "#718096", marginTop: 2 },
   notesInput: {
