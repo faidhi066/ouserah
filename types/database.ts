@@ -6,6 +6,7 @@ export interface Profile {
   role: UserRole;
   group_id: string | null;
   avatar_url: string | null;
+  created_at?: string;
   updated_at: string;
 }
 

@@ -20,8 +20,12 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   role public.user_role NOT NULL DEFAULT 'mutarabbi',
   group_id UUID REFERENCES public.groups(id) ON DELETE SET NULL,
   avatar_url TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW();
+
 
 -- Add foreign key back to groups.murabbi_id -> profiles.id safely
 DO $$ BEGIN

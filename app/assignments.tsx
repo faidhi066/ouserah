@@ -141,16 +141,25 @@ export default function AssignmentsScreen() {
   const openViewSubmissions = async (assignment: Assignment) => {
     setSelectedAssignment(assignment);
     setLoading(true);
+    const assignmentDateStr = assignment.created_at
+      ? assignment.created_at.split("T")[0]
+      : assignment.due_date.split("T")[0];
+
     const { data, error } = await supabase
       .from("submissions")
-      .select("*, profiles:mutarabbi_id(full_name)")
+      .select("*, profiles:mutarabbi_id(full_name, created_at)")
       .eq("assignment_id", assignment.id);
 
     setLoading(false);
     if (error) {
       Alert.alert("Error", error.message);
     } else {
-      setAssignmentSubmissions(data || []);
+      const validSubmissions = (data || []).filter((sub: any) => {
+        if (!sub.profiles?.created_at) return true;
+        const studentJoinDate = sub.profiles.created_at.split("T")[0];
+        return studentJoinDate <= assignmentDateStr;
+      });
+      setAssignmentSubmissions(validSubmissions);
       setViewSubmissionsModal(true);
     }
   };
