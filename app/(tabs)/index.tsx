@@ -1,4 +1,8 @@
-import React, { useCallback, useState } from "react";
+import { useAuth } from "@/context/auth-context";
+import { supabase } from "@/lib/supabase";
+import { Assignment, AttendanceRecord, TrackerLog } from "@/types/database";
+import { Link, useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -8,10 +12,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { Link, useFocusEffect } from "expo-router";
-import { useAuth } from "@/context/auth-context";
-import { supabase } from "@/lib/supabase";
-import { Assignment, AttendanceRecord, Submission, TrackerItem, TrackerLog } from "@/types/database";
 
 export default function HomeScreen() {
   const { profile, activeGroup } = useAuth();
@@ -37,13 +37,19 @@ export default function HomeScreen() {
     todayTotal: number;
     todayPercentage: number;
     past7DaysAvgPercentage: number;
-  }>({ todayCompleted: 0, todayTotal: 0, todayPercentage: 0, past7DaysAvgPercentage: 0 });
+  }>({
+    todayCompleted: 0,
+    todayTotal: 0,
+    todayPercentage: 0,
+    past7DaysAvgPercentage: 0,
+  });
 
   const roleTitle = profile?.role
     ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
     : "User";
 
-  const isMurabbiOrAdmin = profile?.role === "murabbi" || profile?.role === "admin";
+  const isMurabbiOrAdmin =
+    profile?.role === "murabbi" || profile?.role === "admin";
 
   const fetchDashboardData = async () => {
     if (!profile) return;
@@ -65,10 +71,16 @@ export default function HomeScreen() {
 
       const { data: attendanceData } = await attendanceQuery;
       if (attendanceData && attendanceData.length > 0) {
-        const present = attendanceData.filter((r: AttendanceRecord) => r.is_present).length;
+        const present = attendanceData.filter(
+          (r: AttendanceRecord) => r.is_present,
+        ).length;
         const total = attendanceData.length;
         const pct = Math.round((present / total) * 100);
-        setAttendanceStats({ presentCount: present, totalCount: total, percentage: pct });
+        setAttendanceStats({
+          presentCount: present,
+          totalCount: total,
+          percentage: pct,
+        });
       } else {
         setAttendanceStats({ presentCount: 0, totalCount: 0, percentage: 0 });
       }
@@ -91,8 +103,10 @@ export default function HomeScreen() {
       if (assignData && assignData.length > 0) {
         const now = new Date();
         // Find first upcoming or latest assignment
-        const upcoming = assignData.find((a: Assignment) => new Date(a.due_date) >= now) || assignData[assignData.length - 1];
-        
+        const upcoming =
+          assignData.find((a: Assignment) => new Date(a.due_date) >= now) ||
+          assignData[assignData.length - 1];
+
         let submitted = false;
         if (profile.role === "mutarabbi" && upcoming) {
           const { data: subData } = await supabase
@@ -112,7 +126,10 @@ export default function HomeScreen() {
         let dueStr = "";
         if (overdue) {
           const absDays = Math.abs(diffDays);
-          dueStr = absDays === 0 ? "Overdue today" : `Overdue by ${absDays} day${absDays > 1 ? "s" : ""}`;
+          dueStr =
+            absDays === 0
+              ? "Overdue today"
+              : `Overdue by ${absDays} day${absDays > 1 ? "s" : ""}`;
         } else if (diffDays === 0) {
           dueStr = "Due Today";
         } else if (diffDays === 1) {
@@ -128,7 +145,12 @@ export default function HomeScreen() {
           isSubmitted: submitted,
         });
       } else {
-        setNextAssignment({ assignment: null, dueString: "", isOverdue: false, isSubmitted: false });
+        setNextAssignment({
+          assignment: null,
+          dueString: "",
+          isOverdue: false,
+          isSubmitted: false,
+        });
       }
 
       // -------------------------------------------------------------
@@ -148,7 +170,9 @@ export default function HomeScreen() {
           .eq("user_id", profile.id)
           .eq("log_date", today);
 
-        const todayDone = todayLogs ? todayLogs.filter((l: TrackerLog) => l.is_completed).length : 0;
+        const todayDone = todayLogs
+          ? todayLogs.filter((l: TrackerLog) => l.is_completed).length
+          : 0;
         const todayPct = Math.round((todayDone / totalItems) * 100);
 
         // Past 7 days logs calculation
@@ -164,10 +188,14 @@ export default function HomeScreen() {
 
         let pastCompletedCount = 0;
         if (pastLogs) {
-          pastCompletedCount = pastLogs.filter((l: TrackerLog) => l.is_completed).length;
+          pastCompletedCount = pastLogs.filter(
+            (l: TrackerLog) => l.is_completed,
+          ).length;
         }
         const totalPossible7Days = totalItems * 7;
-        const avgPct = Math.round((pastCompletedCount / totalPossible7Days) * 100);
+        const avgPct = Math.round(
+          (pastCompletedCount / totalPossible7Days) * 100,
+        );
 
         setMutabaahStats({
           todayCompleted: todayDone,
@@ -194,7 +222,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchDashboardData();
-    }, [profile, activeGroup])
+    }, [profile, activeGroup]),
   );
 
   const onRefresh = () => {
@@ -213,7 +241,9 @@ export default function HomeScreen() {
     <View style={styles.container}>
       <ScrollView
         style={styles.scrollView}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       >
         {/* Header Card */}
         <View style={styles.headerCard}>
@@ -241,7 +271,9 @@ export default function HomeScreen() {
                 <View style={styles.cardHeaderRow}>
                   <View style={styles.cardTitleRow}>
                     <Text style={styles.cardIcon}>📅</Text>
-                    <Text style={styles.dashCardTitle}>Usrah Attendance Record</Text>
+                    <Text style={styles.dashCardTitle}>
+                      Usrah Attendance Record
+                    </Text>
                   </View>
                   <Text style={styles.gaugeFraction}>
                     {attendanceStats.presentCount}/{attendanceStats.totalCount}
@@ -255,7 +287,9 @@ export default function HomeScreen() {
                       styles.gaugeFill,
                       {
                         width: `${attendanceStats.percentage}%`,
-                        backgroundColor: getGaugeColor(attendanceStats.percentage),
+                        backgroundColor: getGaugeColor(
+                          attendanceStats.percentage,
+                        ),
                       },
                     ]}
                   />
@@ -278,7 +312,9 @@ export default function HomeScreen() {
                 <View style={styles.cardHeaderRow}>
                   <View style={styles.cardTitleRow}>
                     <Text style={styles.cardIcon}>📝</Text>
-                    <Text style={styles.dashCardTitle}>Upcoming Assignment</Text>
+                    <Text style={styles.dashCardTitle}>
+                      Upcoming Assignment
+                    </Text>
                   </View>
                   {nextAssignment.assignment && (
                     <View
@@ -287,8 +323,8 @@ export default function HomeScreen() {
                         nextAssignment.isSubmitted
                           ? styles.submittedBadge
                           : nextAssignment.isOverdue
-                          ? styles.overdueBadge
-                          : styles.dueBadge,
+                            ? styles.overdueBadge
+                            : styles.dueBadge,
                       ]}
                     >
                       <Text style={styles.statusBadgeText}>
@@ -306,18 +342,26 @@ export default function HomeScreen() {
                       {nextAssignment.assignment.title}
                     </Text>
                     <Text style={styles.assignmentDescText} numberOfLines={2}>
-                      {nextAssignment.assignment.description || "No description provided"}
+                      {nextAssignment.assignment.description ||
+                        "No description provided"}
                     </Text>
                     <Text style={styles.dueDateLabel}>
-                      Due Date: {new Date(nextAssignment.assignment.due_date).toLocaleDateString()}
+                      Due Date:{" "}
+                      {new Date(
+                        nextAssignment.assignment.due_date,
+                      ).toLocaleDateString()}
                     </Text>
                   </View>
                 ) : (
-                  <Text style={styles.cardSubText}>No active assignments due.</Text>
+                  <Text style={styles.cardSubText}>
+                    No active assignments due.
+                  </Text>
                 )}
 
                 <View style={styles.cardFooterRow}>
-                  <Text style={styles.cardActionLink}>View All Assignments</Text>
+                  <Text style={styles.cardActionLink}>
+                    View All Assignments
+                  </Text>
                   <Text style={styles.chevron}>›</Text>
                 </View>
               </Pressable>
@@ -329,7 +373,9 @@ export default function HomeScreen() {
                 <View style={styles.cardHeaderRow}>
                   <View style={styles.cardTitleRow}>
                     <Text style={styles.cardIcon}>📋</Text>
-                    <Text style={styles.dashCardTitle}>Past & Daily Mutabaah</Text>
+                    <Text style={styles.dashCardTitle}>
+                      Past & Daily Mutabaah
+                    </Text>
                   </View>
                   <Text style={styles.gaugeFraction}>
                     {mutabaahStats.todayCompleted}/{mutabaahStats.todayTotal}
@@ -342,7 +388,9 @@ export default function HomeScreen() {
                       styles.gaugeFill,
                       {
                         width: `${mutabaahStats.todayPercentage}%`,
-                        backgroundColor: getGaugeColor(mutabaahStats.todayPercentage),
+                        backgroundColor: getGaugeColor(
+                          mutabaahStats.todayPercentage,
+                        ),
                       },
                     ]}
                   />
@@ -351,11 +399,15 @@ export default function HomeScreen() {
                 <View style={styles.mutabaahFooterStats}>
                   <View style={styles.statPill}>
                     <Text style={styles.statPillLabel}>Today's Done</Text>
-                    <Text style={styles.statPillVal}>{mutabaahStats.todayPercentage}%</Text>
+                    <Text style={styles.statPillVal}>
+                      {mutabaahStats.todayPercentage}%
+                    </Text>
                   </View>
                   <View style={styles.statPill}>
                     <Text style={styles.statPillLabel}>7-Day Average</Text>
-                    <Text style={styles.statPillVal}>{mutabaahStats.past7DaysAvgPercentage}%</Text>
+                    <Text style={styles.statPillVal}>
+                      {mutabaahStats.past7DaysAvgPercentage}%
+                    </Text>
                   </View>
                 </View>
 
@@ -367,59 +419,6 @@ export default function HomeScreen() {
             </Link>
           </>
         )}
-
-        {/* Quick Access Menu Grid */}
-        <Text style={styles.sectionTitle}>Quick Access</Text>
-
-        <View style={styles.gridContainer}>
-          <Link href="/(tabs)/daily-tracker" asChild>
-            <Pressable style={styles.card}>
-              <Text style={styles.cardIcon}>📋</Text>
-              <Text style={styles.cardTitle}>Daily Tracker</Text>
-              <Text style={styles.cardDesc}>
-                {profile?.role === "mutarabbi"
-                  ? "Check off daily mutabaah"
-                  : "Manage daily activity list"}
-              </Text>
-            </Pressable>
-          </Link>
-
-          <Link href="/(tabs)/attendance" asChild>
-            <Pressable style={styles.card}>
-              <Text style={styles.cardIcon}>📅</Text>
-              <Text style={styles.cardTitle}>Attendance</Text>
-              <Text style={styles.cardDesc}>
-                {profile?.role === "mutarabbi"
-                  ? "View attendance history"
-                  : "Key in weekly attendance"}
-              </Text>
-            </Pressable>
-          </Link>
-
-          <Link href="/(tabs)/assignments" asChild>
-            <Pressable style={styles.card}>
-              <Text style={styles.cardIcon}>📝</Text>
-              <Text style={styles.cardTitle}>Assignments</Text>
-              <Text style={styles.cardDesc}>
-                {profile?.role === "mutarabbi"
-                  ? "Submit pending tasks"
-                  : "Create & view assignments"}
-              </Text>
-            </Pressable>
-          </Link>
-
-          <Link href="/(tabs)/profile" asChild>
-            <Pressable style={styles.card}>
-              <Text style={styles.cardIcon}>👤</Text>
-              <Text style={styles.cardTitle}>Profile Settings</Text>
-              <Text style={styles.cardDesc}>
-                {profile?.role === "admin"
-                  ? "Edit user profiles & roles"
-                  : "Update profile information"}
-              </Text>
-            </Pressable>
-          </Link>
-        </View>
 
         <View style={styles.infoBox}>
           <Text style={styles.infoTitle}>About Ouserah</Text>
