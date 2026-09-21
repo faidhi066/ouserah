@@ -156,9 +156,13 @@ export default function HomeScreen() {
       // -------------------------------------------------------------
       // 3. DAILY MUTABAAH TRACKER STATS
       // -------------------------------------------------------------
-      const { data: trackerItems } = await supabase
-        .from("tracker_items")
-        .select("*");
+      let trackerQuery = supabase.from("tracker_items").select("*");
+      if (targetGroupId) {
+        trackerQuery = trackerQuery.or(
+          `group_id.eq.${targetGroupId},group_id.is.null`
+        );
+      }
+      const { data: trackerItems } = await trackerQuery;
 
       const totalItems = trackerItems ? trackerItems.length : 0;
 

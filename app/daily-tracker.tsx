@@ -45,11 +45,19 @@ export default function DailyTrackerScreen() {
 
   const fetchData = async () => {
     setLoading(true);
-    // 1. Fetch all tracker items
-    const { data: trackerData, error: trackerErr } = await supabase
+    const targetGroupId = activeGroup?.id || profile?.group_id;
+
+    // 1. Fetch tracker items for active group (or global items where group_id IS NULL)
+    let itemQuery = supabase
       .from("tracker_items")
       .select("*")
       .order("created_at", { ascending: true });
+
+    if (targetGroupId) {
+      itemQuery = itemQuery.or(`group_id.eq.${targetGroupId},group_id.is.null`);
+    }
+
+    const { data: trackerData, error: trackerErr } = await itemQuery;
 
     if (trackerErr) {
       console.error("Error loading tracker items:", trackerErr.message);
@@ -62,7 +70,6 @@ export default function DailyTrackerScreen() {
     if (isMurabbiOrAdmin) {
       // 2. Murabbi/Admin View: Fetch group members and their logs for selectedDate
       let query = supabase.from("profiles").select("*").eq("role", "mutarabbi");
-      const targetGroupId = activeGroup?.id || profile?.group_id;
       if (targetGroupId) {
         query = query.eq("group_id", targetGroupId);
       }
@@ -158,9 +165,17 @@ export default function DailyTrackerScreen() {
 
   const handleAddTrackerItem = async () => {
     if (!newItemTitle.trim() || !profile) return;
+    const targetGroupId = activeGroup?.id || profile?.group_id;
+
+    if (!targetGroupId && profile.role !== "admin") {
+      Alert.alert("No Group Selected", "You must belong to or select a group to add tracker items.");
+      return;
+    }
+
     const { error } = await supabase.from("tracker_items").insert({
       title: newItemTitle.trim(),
       created_by: profile.id,
+      group_id: targetGroupId || null,
     });
 
     if (error) {

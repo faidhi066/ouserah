@@ -31,6 +31,7 @@ export interface TrackerItem {
   id: string;
   title: string;
   description?: string;
+  group_id?: string | null;
   created_by: string;
   created_at: string;
 }

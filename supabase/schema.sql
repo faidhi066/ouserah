@@ -57,6 +57,7 @@ CREATE TABLE IF NOT EXISTS public.tracker_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   title TEXT NOT NULL,
   description TEXT,
+  group_id UUID REFERENCES public.groups(id) ON DELETE CASCADE,
   created_by UUID REFERENCES public.profiles(id),
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
