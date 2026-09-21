@@ -1,4 +1,4 @@
-import { useAuth } from "@/context/auth-context";
+import { useAuth, RoleContext } from "@/context/auth-context";
 import { getInitials } from "@/lib/utils";
 import { Group } from "@/types/database";
 import { useRouter } from "expo-router";
@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -17,8 +18,17 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export function HeaderTopBar() {
-  const { profile, groups, activeGroup, setActiveGroup, createGroup } =
-    useAuth();
+  const {
+    profile,
+    groups,
+    murabbiGroups,
+    mutarabbiGroups,
+    activeGroup,
+    activeRoleContext,
+    selectGroupWithRole,
+    hasRole,
+    createGroup,
+  } = useAuth();
   const router = useRouter();
 
   const [groupDropdownVisible, setGroupDropdownVisible] = useState(false);
@@ -27,11 +37,10 @@ export function HeaderTopBar() {
   const [newGroupName, setNewGroupName] = useState("");
   const [creatingLoading, setCreatingLoading] = useState(false);
 
-  const canSwitchGroup =
-    profile?.role === "admin" || profile?.role === "murabbi";
+  const canCreateGroup = hasRole("admin") || hasRole("murabbi");
 
-  const handleSelectGroup = (group: Group) => {
-    setActiveGroup(group);
+  const handleSelectGroup = (group: Group, roleContext: RoleContext) => {
+    selectGroupWithRole(group, roleContext);
     setGroupDropdownVisible(false);
     setIsCreatingGroup(false);
     setNewGroupName("");
@@ -55,7 +64,7 @@ export function HeaderTopBar() {
         setGroupDropdownVisible(false);
         Alert.alert(
           "Usrah Group Created",
-          `Created "${newGroup.name}" and switched to this Usrah group.`
+          `Created "${newGroup.name}" and switched to this Usrah group as Murabbi.`
         );
       }
     } catch (err: any) {
@@ -73,6 +82,10 @@ export function HeaderTopBar() {
     setNewGroupName("");
   };
 
+  const activeRoleBadge = activeRoleContext
+    ? activeRoleContext.charAt(0).toUpperCase() + activeRoleContext.slice(1)
+    : "";
+
   return (
     <SafeAreaView edges={["top"]} style={styles.safeArea}>
       <View style={styles.container}>
@@ -80,20 +93,27 @@ export function HeaderTopBar() {
         <Pressable
           style={styles.groupSelector}
           onPress={() => {
-            if (canSwitchGroup || groups.length > 0) {
+            if (groups.length > 0 || canCreateGroup) {
               setGroupDropdownVisible(true);
             }
           }}
-          disabled={!canSwitchGroup && groups.length === 0}
+          disabled={groups.length === 0 && !canCreateGroup}
         >
           <Text style={styles.groupIcon}>👥</Text>
           <View>
-            <Text style={styles.groupSubText}>Current Usrah</Text>
+            <View style={styles.subTextRow}>
+              <Text style={styles.groupSubText}>Current Usrah</Text>
+              {activeRoleBadge ? (
+                <View style={styles.activeRolePill}>
+                  <Text style={styles.activeRolePillText}>{activeRoleBadge}</Text>
+                </View>
+              ) : null}
+            </View>
             <View style={styles.groupNameRow}>
               <Text style={styles.groupNameText}>
                 {activeGroup ? activeGroup.name : "No Usrah Assigned"}
               </Text>
-              {(canSwitchGroup || groups.length > 0) && (
+              {(groups.length > 0 || canCreateGroup) && (
                 <Text style={styles.dropdownArrow}> ▾</Text>
               )}
             </View>
@@ -149,49 +169,111 @@ export function HeaderTopBar() {
               </Text>
 
               {!isCreatingGroup ? (
-                <>
-                  {groups.length === 0 ? (
-                    <Text style={styles.emptyGroupsText}>
-                      No Usrah groups available yet.
-                    </Text>
-                  ) : (
-                    groups.map((group) => {
-                      const isSelected = activeGroup?.id === group.id;
-                      return (
+                <ScrollView style={styles.dropdownScrollView}>
+                  {/* MURABBI ROLE SECTION */}
+                  {(murabbiGroups.length > 0 || canCreateGroup) && (
+                    <View style={styles.roleSection}>
+                      <View style={styles.roleSectionHeader}>
+                        <Text style={styles.roleSectionTitle}>Murabbi Role</Text>
+                        <Text style={styles.roleSectionBadge}>Group Leader</Text>
+                      </View>
+
+                      {murabbiGroups.length === 0 ? (
+                        <Text style={styles.emptyRoleGroupText}>
+                          No Usrah groups led as Murabbi yet.
+                        </Text>
+                      ) : (
+                        murabbiGroups.map((group) => {
+                          const isSelected =
+                            activeGroup?.id === group.id &&
+                            activeRoleContext === "murabbi";
+                          return (
+                            <Pressable
+                              key={`murabbi-${group.id}`}
+                              style={[
+                                styles.groupOptionItem,
+                                isSelected && styles.selectedGroupItem,
+                              ]}
+                              onPress={() =>
+                                handleSelectGroup(group, "murabbi")
+                              }
+                            >
+                              <Text
+                                style={[
+                                  styles.groupOptionText,
+                                  isSelected && styles.selectedGroupText,
+                                ]}
+                              >
+                                {group.name}
+                              </Text>
+                              {isSelected && (
+                                <Text style={styles.checkMark}>✓</Text>
+                              )}
+                            </Pressable>
+                          );
+                        })
+                      )}
+
+                      {canCreateGroup && (
                         <Pressable
-                          key={group.id}
-                          style={[
-                            styles.groupOptionItem,
-                            isSelected && styles.selectedGroupItem,
-                          ]}
-                          onPress={() => handleSelectGroup(group)}
+                          style={styles.addGroupBtn}
+                          onPress={() => setIsCreatingGroup(true)}
                         >
-                          <Text
-                            style={[
-                              styles.groupOptionText,
-                              isSelected && styles.selectedGroupText,
-                            ]}
-                          >
-                            {group.name}
+                          <Text style={styles.addGroupBtnIcon}>＋</Text>
+                          <Text style={styles.addGroupBtnText}>
+                            Create New Usrah Group
                           </Text>
-                          {isSelected && <Text style={styles.checkMark}>✓</Text>}
                         </Pressable>
-                      );
-                    })
+                      )}
+                    </View>
                   )}
 
-                  {canSwitchGroup && (
-                    <Pressable
-                      style={styles.addGroupBtn}
-                      onPress={() => setIsCreatingGroup(true)}
-                    >
-                      <Text style={styles.addGroupBtnIcon}>＋</Text>
-                      <Text style={styles.addGroupBtnText}>
-                        Create New Usrah Group
+                  {/* MUTARABBI ROLE SECTION */}
+                  {(hasRole("mutarabbi") || mutarabbiGroups.length > 0) && (
+                    <View style={styles.roleSection}>
+                      <View style={styles.roleSectionHeader}>
+                        <Text style={styles.roleSectionTitle}>Mutarabbi Role</Text>
+                        <Text style={styles.roleSectionBadge}>Student / Member</Text>
+                      </View>
+
+                    {mutarabbiGroups.length === 0 ? (
+                      <Text style={styles.emptyRoleGroupText}>
+                        Not assigned to any Usrah as a Mutarabbi.
                       </Text>
-                    </Pressable>
+                    ) : (
+                      mutarabbiGroups.map((group) => {
+                        const isSelected =
+                          activeGroup?.id === group.id &&
+                          activeRoleContext === "mutarabbi";
+                        return (
+                          <Pressable
+                            key={`mutarabbi-${group.id}`}
+                            style={[
+                              styles.groupOptionItem,
+                              isSelected && styles.selectedGroupItem,
+                            ]}
+                            onPress={() =>
+                              handleSelectGroup(group, "mutarabbi")
+                            }
+                          >
+                            <Text
+                              style={[
+                                styles.groupOptionText,
+                                isSelected && styles.selectedGroupText,
+                              ]}
+                            >
+                              {group.name}
+                            </Text>
+                            {isSelected && (
+                              <Text style={styles.checkMark}>✓</Text>
+                            )}
+                          </Pressable>
+                        );
+                      })
+                    )}
+                    </View>
                   )}
-                </>
+                </ScrollView>
               ) : (
                 <View style={styles.createGroupForm}>
                   <Text style={styles.inputLabel}>Usrah Name</Text>
@@ -287,11 +369,25 @@ const styles = StyleSheet.create({
   },
   groupSelector: { flexDirection: "row", alignItems: "center", gap: 8 },
   groupIcon: { fontSize: 20 },
+  subTextRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   groupSubText: {
     fontSize: 10,
     color: "#718096",
     textTransform: "uppercase",
     fontWeight: "700",
+  },
+  activeRolePill: {
+    backgroundColor: "#ebf8ff",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: "#bee3f8",
+  },
+  activeRolePillText: {
+    fontSize: 9,
+    fontWeight: "bold",
+    color: "#2b6cb0",
   },
   groupNameRow: { flexDirection: "row", alignItems: "center" },
   groupNameText: { fontSize: 16, fontWeight: "bold", color: "#2d3748" },
@@ -329,7 +425,6 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
   },
-  avatarText: { fontSize: 24, textAlign: "center" },
   profileInitialsBox: {
     width: 36,
     height: 36,
@@ -353,6 +448,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 10,
     elevation: 5,
+    maxHeight: "80%",
   },
   dropdownTitle: {
     fontSize: 16,
@@ -360,10 +456,38 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     color: "#2d3748",
   },
+  dropdownScrollView: { maxHeight: 360 },
+  roleSection: {
+    marginBottom: 16,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#edf2f7",
+  },
+  roleSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+    backgroundColor: "#f7fafc",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  roleSectionTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: "#2b6cb0",
+    textTransform: "uppercase",
+  },
+  roleSectionBadge: {
+    fontSize: 10,
+    color: "#718096",
+    fontWeight: "600",
+  },
   groupOptionItem: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 12,
+    paddingVertical: 10,
     paddingHorizontal: 10,
     borderRadius: 8,
     marginBottom: 4,
@@ -372,20 +496,19 @@ const styles = StyleSheet.create({
   groupOptionText: { fontSize: 15, color: "#2d3748" },
   selectedGroupText: { fontWeight: "bold", color: "#2b6cb0" },
   checkMark: { color: "#2b6cb0", fontWeight: "bold" },
-  emptyGroupsText: {
-    fontSize: 14,
-    color: "#718096",
-    marginVertical: 8,
+  emptyRoleGroupText: {
+    fontSize: 13,
+    color: "#a0aec0",
+    marginVertical: 4,
+    paddingHorizontal: 8,
     fontStyle: "italic",
   },
   addGroupBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderColor: "#edf2f7",
+    marginTop: 8,
+    paddingTop: 8,
   },
   addGroupBtnIcon: { fontSize: 16, color: "#2b6cb0", fontWeight: "bold" },
   addGroupBtnText: { fontSize: 14, color: "#2b6cb0", fontWeight: "600" },

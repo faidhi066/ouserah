@@ -14,12 +14,17 @@ import { supabase } from "../lib/supabase";
 import { Assignment, Submission } from "../types/database";
 
 export default function AssignmentsScreen() {
-  const { profile, activeGroup } = useAuth();
+  const { profile, activeGroup, activeRoleContext, hasRole } = useAuth();
   const [assignments, setAssignments] = useState<Assignment[]>([]);
+
+  const isMurabbiOrAdmin =
+    activeRoleContext === "admin" ||
+    activeRoleContext === "murabbi" ||
+    (!activeRoleContext && (hasRole("admin") || hasRole("murabbi")));
 
   const fetchAssignments = async () => {
     setLoading(true);
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
     let query = supabase
       .from("assignments")
       .select("*")
@@ -37,7 +42,7 @@ export default function AssignmentsScreen() {
       setAssignments(assignData);
     }
 
-    if (profile?.role === "mutarabbi") {
+    if (!isMurabbiOrAdmin && profile) {
       const { data: subData } = await supabase
         .from("submissions")
         .select("*")
@@ -75,9 +80,6 @@ export default function AssignmentsScreen() {
   const [viewSubmissionsModal, setViewSubmissionsModal] = useState(false);
   const [assignmentSubmissions, setAssignmentSubmissions] = useState<any[]>([]);
 
-  const isMurabbiOrAdmin =
-    profile?.role === "murabbi" || profile?.role === "admin";
-
   useEffect(() => {
     fetchAssignments();
   }, [profile, activeGroup]);
@@ -94,7 +96,7 @@ export default function AssignmentsScreen() {
       description: newDesc,
       due_date: newDueDate,
       created_by: profile.id,
-      group_id: activeGroup?.id || profile?.group_id || null,
+      group_id: activeGroup?.id || null,
     });
 
     setLoading(false);
@@ -199,7 +201,7 @@ export default function AssignmentsScreen() {
               <Text style={styles.cardDesc}>{item.description}</Text>
               <Text style={styles.dueDate}>Due Date: {item.due_date}</Text>
 
-              {profile?.role === "mutarabbi" && (
+              {!isMurabbiOrAdmin && (
                 <View style={styles.actionRow}>
                   {submission ? (
                     <View style={styles.submittedBadge}>

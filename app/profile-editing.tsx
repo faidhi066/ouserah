@@ -18,9 +18,9 @@ import { getInitials } from "../lib/utils";
 import { Profile, UserRole } from "../types/database";
 
 export default function ProfileScreen() {
-  const { profile, refreshProfile, signOut } = useAuth();
-  const [fullName, setFullName] = useState(profile?.full_name || "");
-  const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url || "");
+  const { profile, signOut, refreshProfile, hasRole } = useAuth();
+  const [fullName, setFullName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [updating, setUpdating] = useState(false);
   const [pickingImage, setPickingImage] = useState(false);
 
@@ -31,8 +31,8 @@ export default function ProfileScreen() {
   const [targetRole, setTargetRole] = useState<UserRole>("mutarabbi");
   const [targetAvatar, setTargetAvatar] = useState("");
 
-  const isAdmin = profile?.role === "admin";
-  const isMutarabbi = profile?.role === "mutarabbi";
+  const isAdmin = hasRole("admin");
+  const isMutarabbi = hasRole("mutarabbi") && !hasRole("murabbi") && !isAdmin;
 
   useEffect(() => {
     if (profile) {
@@ -203,7 +203,7 @@ export default function ProfileScreen() {
   const openAdminEditUser = (user: Profile) => {
     setSelectedUser(user);
     setTargetName(user.full_name);
-    setTargetRole(user.role);
+    setTargetRole(user.roles && user.roles.length > 0 ? user.roles[0] : "mutarabbi");
     setTargetAvatar(user.avatar_url || "");
     setEditUserModal(true);
   };
@@ -216,7 +216,7 @@ export default function ProfileScreen() {
       .from("profiles")
       .update({
         full_name: targetName,
-        role: targetRole,
+        roles: [targetRole],
         avatar_url: targetAvatar || null,
         updated_at: new Date().toISOString(),
       })
@@ -239,7 +239,7 @@ export default function ProfileScreen() {
         <Text style={styles.header}>Profile Settings</Text>
         <Text style={styles.roleTag}>
           Your Role:{" "}
-          <Text style={styles.boldRole}>{profile?.role.toUpperCase()}</Text>
+          <Text style={styles.boldRole}>{(profile?.roles || []).join(", ").toUpperCase()}</Text>
         </Text>
 
         <View style={styles.section}>
@@ -351,7 +351,9 @@ export default function ProfileScreen() {
                   )}
                   <View style={styles.userCardInfo}>
                     <Text style={styles.userName}>{user.full_name}</Text>
-                    <Text style={styles.userRole}>Role: {user.role}</Text>
+                    <Text style={styles.userRole}>
+                      Roles: {(user.roles || []).join(", ")}
+                    </Text>
                   </View>
                 </View>
                 <Text style={styles.editAction}>Edit →</Text>

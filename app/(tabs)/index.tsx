@@ -14,7 +14,7 @@ import {
 } from "react-native";
 
 export default function HomeScreen() {
-  const { profile, activeGroup } = useAuth();
+  const { profile, activeGroup, activeRoleContext, hasRole } = useAuth();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -44,12 +44,17 @@ export default function HomeScreen() {
     past7DaysAvgPercentage: 0,
   });
 
-  const roleTitle = profile?.role
-    ? profile.role.charAt(0).toUpperCase() + profile.role.slice(1)
-    : "User";
-
   const isMurabbiOrAdmin =
-    profile?.role === "murabbi" || profile?.role === "admin";
+    activeRoleContext === "admin" ||
+    activeRoleContext === "murabbi" ||
+    (!activeRoleContext && (hasRole("admin") || hasRole("murabbi")));
+
+  const primaryRoleStr =
+    activeRoleContext ||
+    (hasRole("admin") ? "admin" : hasRole("murabbi") ? "murabbi" : "mutarabbi");
+
+  const roleTitle =
+    primaryRoleStr.charAt(0).toUpperCase() + primaryRoleStr.slice(1);
 
   const fetchDashboardData = async () => {
     if (!profile) return;
@@ -60,10 +65,10 @@ export default function HomeScreen() {
       // 1. ATTENDANCE STATS
       // -------------------------------------------------------------
       let attendanceQuery = supabase.from("attendance_records").select("*");
-      if (profile.role === "mutarabbi") {
+      if (activeRoleContext === "mutarabbi" || (!isMurabbiOrAdmin && hasRole("mutarabbi"))) {
         attendanceQuery = attendanceQuery.eq("mutarabbi_id", profile.id);
       } else {
-        const targetGroupId = activeGroup?.id || profile.group_id;
+        const targetGroupId = activeGroup?.id;
         if (targetGroupId) {
           attendanceQuery = attendanceQuery.eq("group_id", targetGroupId);
         }
@@ -93,7 +98,7 @@ export default function HomeScreen() {
         .select("*")
         .order("due_date", { ascending: true });
 
-      const targetGroupId = activeGroup?.id || profile.group_id;
+      const targetGroupId = activeGroup?.id;
       if (targetGroupId) {
         assignQuery = assignQuery.eq("group_id", targetGroupId);
       }
@@ -108,7 +113,7 @@ export default function HomeScreen() {
           assignData[assignData.length - 1];
 
         let submitted = false;
-        if (profile.role === "mutarabbi" && upcoming) {
+        if (!isMurabbiOrAdmin && upcoming) {
           const { data: subData } = await supabase
             .from("submissions")
             .select("*")

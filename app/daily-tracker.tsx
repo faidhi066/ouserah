@@ -20,9 +20,8 @@ interface StudentProgress {
   completedLogs: Record<string, boolean>; // item_id -> boolean
   completedCount: number;
 }
-
 export default function DailyTrackerScreen() {
-  const { profile, activeGroup } = useAuth();
+  const { profile, activeGroup, activeRoleContext, hasRole } = useAuth();
   const [items, setItems] = useState<TrackerItem[]>([]);
   const [myLogs, setMyLogs] = useState<Record<string, boolean>>({});
   const [studentProgressList, setStudentProgressList] = useState<StudentProgress[]>([]);
@@ -37,7 +36,9 @@ export default function DailyTrackerScreen() {
   const [currentCalendarMonth, setCurrentCalendarMonth] = useState(new Date());
 
   const isMurabbiOrAdmin =
-    profile?.role === "murabbi" || profile?.role === "admin";
+    activeRoleContext === "admin" ||
+    activeRoleContext === "murabbi" ||
+    (!activeRoleContext && (hasRole("admin") || hasRole("murabbi")));
 
   useEffect(() => {
     fetchData();
@@ -45,7 +46,7 @@ export default function DailyTrackerScreen() {
 
   const fetchData = async () => {
     setLoading(true);
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
 
     // 1. Fetch tracker items for active group (or global items where group_id IS NULL)
     let itemQuery = supabase
@@ -121,7 +122,7 @@ export default function DailyTrackerScreen() {
       });
 
       setStudentProgressList(progressList);
-    } else if (profile?.role === "mutarabbi") {
+    } else if (profile?.id) {
       // 3. Mutarabbi View: Fetch own logs for selectedDate
       const { data: logData } = await supabase
         .from("tracker_logs")
@@ -165,9 +166,9 @@ export default function DailyTrackerScreen() {
 
   const handleAddTrackerItem = async () => {
     if (!newItemTitle.trim() || !profile) return;
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
 
-    if (!targetGroupId && profile.role !== "admin") {
+    if (!targetGroupId && !hasRole("admin")) {
       Alert.alert("No Group Selected", "You must belong to or select a group to add tracker items.");
       return;
     }

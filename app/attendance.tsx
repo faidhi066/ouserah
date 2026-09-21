@@ -24,7 +24,6 @@ interface AttendanceItem {
 }
 
 export default function AttendanceScreen() {
-  const { profile, activeGroup } = useAuth();
   const [students, setStudents] = useState<AttendanceItem[]>([]);
   const [myHistory, setMyHistory] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,32 +47,49 @@ export default function AttendanceScreen() {
     null,
   );
 
+  const { profile, activeGroup, activeRoleContext, hasRole } = useAuth();
+
   const isMurabbiOrAdmin =
-    profile?.role === "murabbi" || profile?.role === "admin";
+    activeRoleContext === "admin" ||
+    activeRoleContext === "murabbi" ||
+    (!activeRoleContext && (hasRole("admin") || hasRole("murabbi")));
 
   useEffect(() => {
     if (isMurabbiOrAdmin) {
       loadGroupMembers();
-    } else if (profile?.role === "mutarabbi") {
+    } else {
       loadMutarabbiHistory();
     }
   }, [profile, activeGroup, selectedDate]);
 
   const loadGroupMembers = async () => {
     setLoading(true);
-    let query = supabase.from("profiles").select("*").eq("role", "mutarabbi");
+    const targetGroupId = activeGroup?.id;
+    let memberIds: string[] = [];
 
-    const targetGroupId = activeGroup?.id || profile?.group_id;
     if (targetGroupId) {
-      query = query.eq("group_id", targetGroupId);
+      const { data: memberRows } = await supabase
+        .from("group_members")
+        .select("user_id")
+        .eq("group_id", targetGroupId)
+        .eq("role", "mutarabbi");
+
+      memberIds = (memberRows || []).map((m) => m.user_id);
     }
 
-    const { data: members, error } = await query;
+    let members: Profile[] = [];
+    if (memberIds.length > 0) {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .in("id", memberIds);
 
-    if (error) {
-      Alert.alert("Error fetching members", error.message);
-      setLoading(false);
-      return;
+      if (error) {
+        Alert.alert("Error fetching members", error.message);
+        setLoading(false);
+        return;
+      }
+      members = data || [];
     }
 
     // Filter members by join date (created_at): hide mutarabbi if session date is prior to their join date
@@ -125,20 +141,26 @@ export default function AttendanceScreen() {
   };
 
   const openAddMutarabbiModal = async () => {
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
     if (!targetGroupId) {
       Alert.alert("Error", "No active Usrah group selected. Please select a group at the top bar first.");
       return;
     }
 
-    const { data } = await supabase
+    const { data: allProfiles } = await supabase
       .from("profiles")
-      .select("*")
-      .eq("role", "mutarabbi");
+      .select("*");
 
-    if (data) {
-      const unassigned = data.filter(
-        (p: Profile) => p.group_id !== targetGroupId,
+    const { data: groupMemberRows } = await supabase
+      .from("group_members")
+      .select("user_id")
+      .eq("group_id", targetGroupId);
+
+    const existingMemberIds = new Set((groupMemberRows || []).map((m) => m.user_id));
+
+    if (allProfiles) {
+      const unassigned = allProfiles.filter(
+        (p: Profile) => !existingMemberIds.has(p.id)
       );
       setUnassignedMutarabbis(unassigned);
     }
@@ -151,17 +173,19 @@ export default function AttendanceScreen() {
   };
 
   const handleAddExistingMutarabbi = async (mutarabbiId: string) => {
-    const targetGroupId = activeGroup?.id || profile?.group_id;
-    console.log("[AuthContext] Active Usrah Group:", targetGroupId);
+    const targetGroupId = activeGroup?.id;
     if (!targetGroupId) {
       Alert.alert("Error", "No active group selected.");
       return;
     }
 
     const { error } = await supabase
-      .from("profiles")
-      .update({ group_id: targetGroupId, updated_at: new Date().toISOString() })
-      .eq("id", mutarabbiId);
+      .from("group_members")
+      .insert({
+        user_id: mutarabbiId,
+        group_id: targetGroupId,
+        role: "mutarabbi",
+      });
 
     if (error) {
       Alert.alert("Error", error.message);
@@ -170,12 +194,11 @@ export default function AttendanceScreen() {
         (p) => p.id === mutarabbiId,
       );
       if (addedProfile) {
-        const updatedProfile = { ...addedProfile, group_id: targetGroupId };
         setStudents((prev) => {
           if (prev.some((s) => s.mutarabbi.id === mutarabbiId)) return prev;
           return [
             ...prev,
-            { mutarabbi: updatedProfile, isPresent: false, notes: "" },
+            { mutarabbi: addedProfile, isPresent: false, notes: "" },
           ];
         });
       }
@@ -199,7 +222,7 @@ export default function AttendanceScreen() {
       return;
     }
 
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
     if (!targetGroupId) {
       Alert.alert("Error", "No active group selected. Please select a group first.");
       return;
@@ -269,8 +292,7 @@ export default function AttendanceScreen() {
     const newStudentProfile: Profile = {
       id: userId,
       full_name: newMutarabbiName.trim(),
-      role: "mutarabbi",
-      group_id: targetGroupId || null,
+      roles: ["mutarabbi"],
       avatar_url: null,
       created_at: joinIso,
       updated_at: new Date().toISOString(),
@@ -316,14 +338,12 @@ export default function AttendanceScreen() {
     }
     setLoading(true);
 
-    const targetGroupId = activeGroup?.id || profile?.group_id;
+    const targetGroupId = activeGroup?.id;
 
     const payload = students.map((item) => {
-      const gid =
-        targetGroupId || item.mutarabbi.group_id || profile?.group_id || null;
       return {
         mutarabbi_id: item.mutarabbi.id,
-        group_id: gid,
+        group_id: targetGroupId || null,
         marked_by: profile.id,
         session_date: selectedDate,
         is_present: item.isPresent,
