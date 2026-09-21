@@ -17,8 +17,7 @@ CREATE TABLE IF NOT EXISTS public.groups (
 CREATE TABLE IF NOT EXISTS public.profiles (
   id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   full_name TEXT NOT NULL,
-  role public.user_role NOT NULL DEFAULT 'mutarabbi',
-  group_id UUID REFERENCES public.groups(id) ON DELETE SET NULL,
+  roles public.user_role[] NOT NULL DEFAULT '{mutarabbi}'::public.user_role[],
   avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -95,9 +94,20 @@ CREATE TABLE IF NOT EXISTS public.submissions (
   CONSTRAINT unique_submission_per_assignment UNIQUE (assignment_id, mutarabbi_id)
 );
 
--- 9. Enable Row Level Security (RLS) on all tables
+-- 9. Create Group Members Table (Explicit User-Group Membership Mapping)
+CREATE TABLE IF NOT EXISTS public.group_members (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  group_id UUID NOT NULL REFERENCES public.groups(id) ON DELETE CASCADE,
+  role public.user_role NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT unique_user_group_role UNIQUE (user_id, group_id, role)
+);
+
+-- 10. Enable Row Level Security (RLS) on all tables
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.group_members ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.attendance_records ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tracker_items ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.tracker_logs ENABLE ROW LEVEL SECURITY;
@@ -136,7 +146,7 @@ CREATE POLICY "Users update own profile" ON public.profiles
 DROP POLICY IF EXISTS "Murabbi update mutarabbi profiles" ON public.profiles;
 CREATE POLICY "Murabbi update mutarabbi profiles" ON public.profiles
   FOR UPDATE USING (
-    public.get_user_role(auth.uid()) = 'murabbi' AND role = 'mutarabbi'
+    public.has_user_role(auth.uid(), 'murabbi') AND 'mutarabbi'::public.user_role = ANY(roles)
   );
 
 
@@ -164,7 +174,7 @@ CREATE POLICY "Murabbi update assigned groups" ON public.groups
 CREATE OR REPLACE FUNCTION public.check_mutarabbi_name_change()
 RETURNS TRIGGER AS $$
 BEGIN
-  IF (OLD.role = 'mutarabbi' AND OLD.full_name IS DISTINCT FROM NEW.full_name) THEN
+  IF ('mutarabbi'::public.user_role = ANY(OLD.roles) AND OLD.full_name IS DISTINCT FROM NEW.full_name) THEN
     IF (auth.uid() IS NOT NULL AND auth.uid() != OLD.id) THEN
       RETURN NEW;
     END IF;
