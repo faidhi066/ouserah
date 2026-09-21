@@ -4,15 +4,28 @@ import { Group } from "@/types/database";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import { Image } from "expo-image";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 export function HeaderTopBar() {
-  const { profile, groups, activeGroup, setActiveGroup } = useAuth();
+  const { profile, groups, activeGroup, setActiveGroup, createGroup } =
+    useAuth();
   const router = useRouter();
 
   const [groupDropdownVisible, setGroupDropdownVisible] = useState(false);
   const [notificationVisible, setNotificationVisible] = useState(false);
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [creatingLoading, setCreatingLoading] = useState(false);
 
   const canSwitchGroup =
     profile?.role === "admin" || profile?.role === "murabbi";
@@ -20,6 +33,44 @@ export function HeaderTopBar() {
   const handleSelectGroup = (group: Group) => {
     setActiveGroup(group);
     setGroupDropdownVisible(false);
+    setIsCreatingGroup(false);
+    setNewGroupName("");
+  };
+
+  const handleCreateGroup = async () => {
+    const trimmed = newGroupName.trim();
+    if (!trimmed) {
+      Alert.alert("Validation", "Please enter a valid Usrah group name.");
+      return;
+    }
+
+    try {
+      setCreatingLoading(true);
+      const newGroup = await createGroup(trimmed);
+      setCreatingLoading(false);
+
+      if (newGroup) {
+        setNewGroupName("");
+        setIsCreatingGroup(false);
+        setGroupDropdownVisible(false);
+        Alert.alert(
+          "Usrah Group Created",
+          `Created "${newGroup.name}" and switched to this Usrah group.`
+        );
+      }
+    } catch (err: any) {
+      setCreatingLoading(false);
+      Alert.alert(
+        "Error",
+        err?.message || "Failed to create new Usrah group. Please try again."
+      );
+    }
+  };
+
+  const handleCloseDropdown = () => {
+    setGroupDropdownVisible(false);
+    setIsCreatingGroup(false);
+    setNewGroupName("");
   };
 
   return (
@@ -29,11 +80,11 @@ export function HeaderTopBar() {
         <Pressable
           style={styles.groupSelector}
           onPress={() => {
-            if (canSwitchGroup && groups.length > 0) {
+            if (canSwitchGroup || groups.length > 0) {
               setGroupDropdownVisible(true);
             }
           }}
-          disabled={!canSwitchGroup || groups.length === 0}
+          disabled={!canSwitchGroup && groups.length === 0}
         >
           <Text style={styles.groupIcon}>👥</Text>
           <View>
@@ -42,7 +93,7 @@ export function HeaderTopBar() {
               <Text style={styles.groupNameText}>
                 {activeGroup ? activeGroup.name : "No Usrah Assigned"}
               </Text>
-              {canSwitchGroup && groups.length > 0 && (
+              {(canSwitchGroup || groups.length > 0) && (
                 <Text style={styles.dropdownArrow}> ▾</Text>
               )}
             </View>
@@ -60,7 +111,7 @@ export function HeaderTopBar() {
             <View style={styles.notificationBadgeDot} />
           </Pressable>
 
-          {/* Profile Button (Moved from tab bar to topbar right) */}
+          {/* Profile Button */}
           <Pressable
             style={styles.profileButton}
             onPress={() => router.push("/profile-editing")}
@@ -86,38 +137,104 @@ export function HeaderTopBar() {
           visible={groupDropdownVisible}
           transparent
           animationType="fade"
-          onRequestClose={() => setGroupDropdownVisible(false)}
+          onRequestClose={handleCloseDropdown}
         >
-          <Pressable
-            style={styles.modalOverlay}
-            onPress={() => setGroupDropdownVisible(false)}
-          >
-            <View style={styles.dropdownCard}>
-              <Text style={styles.dropdownTitle}>Select Usrah Group</Text>
-              {groups.map((group) => {
-                const isSelected = activeGroup?.id === group.id;
-                return (
-                  <Pressable
-                    key={group.id}
-                    style={[
-                      styles.groupOptionItem,
-                      isSelected && styles.selectedGroupItem,
-                    ]}
-                    onPress={() => handleSelectGroup(group)}
-                  >
-                    <Text
-                      style={[
-                        styles.groupOptionText,
-                        isSelected && styles.selectedGroupText,
-                      ]}
-                    >
-                      {group.name}
+          <Pressable style={styles.modalOverlay} onPress={handleCloseDropdown}>
+            <Pressable
+              style={styles.dropdownCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <Text style={styles.dropdownTitle}>
+                {isCreatingGroup ? "Create New Usrah" : "Select Usrah Group"}
+              </Text>
+
+              {!isCreatingGroup ? (
+                <>
+                  {groups.length === 0 ? (
+                    <Text style={styles.emptyGroupsText}>
+                      No Usrah groups available yet.
                     </Text>
-                    {isSelected && <Text style={styles.checkMark}>✓</Text>}
-                  </Pressable>
-                );
-              })}
-            </View>
+                  ) : (
+                    groups.map((group) => {
+                      const isSelected = activeGroup?.id === group.id;
+                      return (
+                        <Pressable
+                          key={group.id}
+                          style={[
+                            styles.groupOptionItem,
+                            isSelected && styles.selectedGroupItem,
+                          ]}
+                          onPress={() => handleSelectGroup(group)}
+                        >
+                          <Text
+                            style={[
+                              styles.groupOptionText,
+                              isSelected && styles.selectedGroupText,
+                            ]}
+                          >
+                            {group.name}
+                          </Text>
+                          {isSelected && <Text style={styles.checkMark}>✓</Text>}
+                        </Pressable>
+                      );
+                    })
+                  )}
+
+                  {canSwitchGroup && (
+                    <Pressable
+                      style={styles.addGroupBtn}
+                      onPress={() => setIsCreatingGroup(true)}
+                    >
+                      <Text style={styles.addGroupBtnIcon}>＋</Text>
+                      <Text style={styles.addGroupBtnText}>
+                        Create New Usrah Group
+                      </Text>
+                    </Pressable>
+                  )}
+                </>
+              ) : (
+                <View style={styles.createGroupForm}>
+                  <Text style={styles.inputLabel}>Usrah Name</Text>
+                  <TextInput
+                    style={styles.groupInput}
+                    placeholder="e.g. Usrah Al-Fatih"
+                    placeholderTextColor="#a0aec0"
+                    value={newGroupName}
+                    onChangeText={setNewGroupName}
+                    autoFocus
+                  />
+                  <View style={styles.createGroupActions}>
+                    <Pressable
+                      style={styles.cancelCreateBtn}
+                      onPress={() => {
+                        setIsCreatingGroup(false);
+                        setNewGroupName("");
+                      }}
+                      disabled={creatingLoading}
+                    >
+                      <Text style={styles.cancelCreateText}>Cancel</Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={[
+                        styles.submitCreateBtn,
+                        creatingLoading && styles.disabledBtn,
+                      ]}
+                      onPress={handleCreateGroup}
+                      disabled={creatingLoading}
+                    >
+                      {creatingLoading ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={styles.submitCreateText}>
+                          Create & Switch
+                        </Text>
+                      )}
+                    </Pressable>
+                  </View>
+                </View>
+              )}
+            </Pressable>
           </Pressable>
         </Modal>
 
@@ -255,6 +372,53 @@ const styles = StyleSheet.create({
   groupOptionText: { fontSize: 15, color: "#2d3748" },
   selectedGroupText: { fontWeight: "bold", color: "#2b6cb0" },
   checkMark: { color: "#2b6cb0", fontWeight: "bold" },
+  emptyGroupsText: {
+    fontSize: 14,
+    color: "#718096",
+    marginVertical: 8,
+    fontStyle: "italic",
+  },
+  addGroupBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderColor: "#edf2f7",
+  },
+  addGroupBtnIcon: { fontSize: 16, color: "#2b6cb0", fontWeight: "bold" },
+  addGroupBtnText: { fontSize: 14, color: "#2b6cb0", fontWeight: "600" },
+  createGroupForm: { marginTop: 4, gap: 10 },
+  inputLabel: { fontSize: 12, fontWeight: "600", color: "#4a5568" },
+  groupInput: {
+    borderWidth: 1,
+    borderColor: "#cbd5e0",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: "#2d3748",
+  },
+  createGroupActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 8,
+  },
+  cancelCreateBtn: { paddingVertical: 8, paddingHorizontal: 14 },
+  cancelCreateText: { color: "#718096", fontWeight: "600" },
+  submitCreateBtn: {
+    backgroundColor: "#2b6cb0",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    minWidth: 120,
+    alignItems: "center",
+  },
+  disabledBtn: { opacity: 0.6 },
+  submitCreateText: { color: "#fff", fontWeight: "bold", fontSize: 14 },
   notificationCard: {
     backgroundColor: "#fff",
     borderRadius: 12,

@@ -148,6 +148,12 @@ DROP POLICY IF EXISTS "Authenticated users read groups" ON public.groups;
 CREATE POLICY "Authenticated users read groups" ON public.groups
   FOR SELECT USING (auth.role() = 'authenticated');
 
+DROP POLICY IF EXISTS "Admin & Murabbi insert groups" ON public.groups;
+CREATE POLICY "Admin & Murabbi insert groups" ON public.groups
+  FOR INSERT WITH CHECK (
+    public.get_user_role(auth.uid()) IN ('admin', 'murabbi')
+  );
+
 DROP POLICY IF EXISTS "Murabbi update assigned groups" ON public.groups;
 CREATE POLICY "Murabbi update assigned groups" ON public.groups
   FOR UPDATE USING (murabbi_id = auth.uid() AND public.get_user_role(auth.uid()) = 'murabbi');

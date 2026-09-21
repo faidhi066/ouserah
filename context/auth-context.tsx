@@ -13,6 +13,7 @@ interface AuthContextType {
   setActiveGroup: (group: Group) => void;
   refreshProfile: () => Promise<void>;
   refreshGroups: () => Promise<void>;
+  createGroup: (name: string) => Promise<Group | null>;
   signOut: () => Promise<void>;
 }
 
@@ -127,6 +128,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await fetchGroups(profile);
   };
 
+  const createGroup = async (name: string): Promise<Group | null> => {
+    if (!profile) return null;
+    try {
+      const trimmedName = name.trim();
+      if (!trimmedName) return null;
+
+      const { data, error } = await supabase
+        .from('groups')
+        .insert({
+          name: trimmedName,
+          murabbi_id: profile.id,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error creating group:', error.message);
+        throw error;
+      }
+
+      const newGroup = data as Group;
+
+      setGroups((prev) => {
+        const updated = [...prev, newGroup];
+        return updated.sort((a, b) => a.name.localeCompare(b.name));
+      });
+
+      setActiveGroup(newGroup);
+
+      if (!profile.group_id) {
+        await supabase
+          .from('profiles')
+          .update({ group_id: newGroup.id })
+          .eq('id', profile.id);
+        setProfile((prev) => (prev ? { ...prev, group_id: newGroup.id } : null));
+      }
+
+      return newGroup;
+    } catch (err) {
+      console.error('Error in createGroup:', err);
+      throw err;
+    }
+  };
+
   const signOut = async () => {
     setLoading(true);
     await supabase.auth.signOut();
@@ -150,6 +195,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setActiveGroup,
         refreshProfile,
         refreshGroups,
+        createGroup,
         signOut,
       }}
     >
