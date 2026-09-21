@@ -70,17 +70,47 @@ export default function DailyTrackerScreen() {
 
     if (isMurabbiOrAdmin) {
       // 2. Murabbi/Admin View: Fetch group members and their logs for selectedDate
-      let query = supabase.from("profiles").select("*").eq("role", "mutarabbi");
+      let members: Profile[] = [];
+
       if (targetGroupId) {
-        query = query.eq("group_id", targetGroupId);
-      }
+        const { data: memberRows, error: memberRowsErr } = await supabase
+          .from("group_members")
+          .select("user_id")
+          .eq("group_id", targetGroupId)
+          .eq("role", "mutarabbi");
 
-      const { data: members, error: membersErr } = await query;
+        if (memberRowsErr) {
+          Alert.alert("Error fetching members", memberRowsErr.message);
+          setLoading(false);
+          return;
+        }
 
-      if (membersErr) {
-        Alert.alert("Error fetching members", membersErr.message);
-        setLoading(false);
-        return;
+        const memberIds = (memberRows || []).map((m) => m.user_id);
+        if (memberIds.length > 0) {
+          const { data: profileRows, error: profilesErr } = await supabase
+            .from("profiles")
+            .select("*")
+            .in("id", memberIds);
+
+          if (profilesErr) {
+            Alert.alert("Error fetching members", profilesErr.message);
+            setLoading(false);
+            return;
+          }
+          members = profileRows || [];
+        }
+      } else {
+        const { data: profileRows, error: profilesErr } = await supabase
+          .from("profiles")
+          .select("*")
+          .contains("roles", ["mutarabbi"]);
+
+        if (profilesErr) {
+          Alert.alert("Error fetching members", profilesErr.message);
+          setLoading(false);
+          return;
+        }
+        members = profileRows || [];
       }
 
       // Filter members by join date: hide student if selectedDate is prior to their join date
