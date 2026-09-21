@@ -3,8 +3,7 @@ export type UserRole = "admin" | "murabbi" | "mutarabbi";
 export interface Profile {
   id: string;
   full_name: string;
-  role: UserRole;
-  group_id: string | null;
+  roles: UserRole[];
   avatar_url: string | null;
   created_at?: string;
   updated_at: string;
@@ -14,6 +13,14 @@ export interface Group {
   id: string;
   name: string;
   murabbi_id: string | null;
+  created_at: string;
+}
+
+export interface GroupMember {
+  id: string;
+  user_id: string;
+  group_id: string;
+  role: UserRole;
   created_at: string;
 }
 

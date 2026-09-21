@@ -1,16 +1,23 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
-import { Group, Profile } from '../types/database';
+import { Group, Profile, UserRole } from '../types/database';
+
+export type RoleContext = 'murabbi' | 'mutarabbi' | 'admin';
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   profile: Profile | null;
   groups: Group[];
+  murabbiGroups: Group[];
+  mutarabbiGroups: Group[];
   activeGroup: Group | null;
+  activeRoleContext: RoleContext | null;
   loading: boolean;
   setActiveGroup: (group: Group) => void;
+  selectGroupWithRole: (group: Group, roleContext: RoleContext) => void;
+  hasRole: (role: UserRole) => boolean;
   refreshProfile: () => Promise<void>;
   refreshGroups: () => Promise<void>;
   createGroup: (name: string) => Promise<Group | null>;
@@ -24,38 +31,70 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [murabbiGroups, setMurabbiGroups] = useState<Group[]>([]);
+  const [mutarabbiGroups, setMutarabbiGroups] = useState<Group[]>([]);
   const [activeGroup, setActiveGroup] = useState<Group | null>(null);
+  const [activeRoleContext, setActiveRoleContext] = useState<RoleContext | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const hasRole = (role: UserRole): boolean => {
+    if (!profile || !profile.roles) return false;
+    return profile.roles.includes(role);
+  };
 
   const fetchGroups = async (userProfile?: Profile | null) => {
     try {
-      let query = supabase.from('groups').select('*').order('name');
+      if (!userProfile) return;
 
-      if (userProfile?.role === 'murabbi') {
-        // Fetch all Usrah groups assigned to / led by this Murabbi
-        query = query.eq('murabbi_id', userProfile.id);
-      } else if (userProfile?.role === 'mutarabbi' && userProfile.group_id) {
-        query = query.eq('id', userProfile.group_id);
+      const userRoles: UserRole[] = userProfile.roles || [];
+      const isAdmin = userRoles.includes('admin');
+
+      let fetchedMurabbiGroups: Group[] = [];
+      let fetchedMutarabbiGroups: Group[] = [];
+
+      if (isAdmin) {
+        const { data } = await supabase.from('groups').select('*').order('name');
+        fetchedMurabbiGroups = data || [];
       }
 
-      const { data, error } = await query;
-      if (error) {
-        console.error('Error fetching groups:', error.message);
-        return;
+      // Query group_members table for user's explicit group memberships
+      const { data: memberRows } = await supabase
+        .from('group_members')
+        .select('role, group_id, groups(*)')
+        .eq('user_id', userProfile.id);
+
+      if (memberRows) {
+        memberRows.forEach((row: any) => {
+          if (row.groups) {
+            const groupData = row.groups as Group;
+            if (row.role === 'murabbi' && !isAdmin) {
+              fetchedMurabbiGroups.push(groupData);
+            } else if (row.role === 'mutarabbi') {
+              fetchedMutarabbiGroups.push(groupData);
+            }
+          }
+        });
       }
-      const userGroups: Group[] = data || [];
+
+      setMurabbiGroups(fetchedMurabbiGroups);
+      setMutarabbiGroups(fetchedMutarabbiGroups);
+
+      // Unique combined list of groups
+      const allMap = new Map<string, Group>();
+      fetchedMurabbiGroups.forEach((g) => allMap.set(g.id, g));
+      fetchedMutarabbiGroups.forEach((g) => allMap.set(g.id, g));
+      const userGroups = Array.from(allMap.values());
       setGroups(userGroups);
 
       if (userGroups.length > 0) {
-        // Retain currently selected activeGroup if valid, or default to profile group or first available
-        setActiveGroup((prev) => {
-          if (prev && userGroups.some((g) => g.id === prev.id)) {
-            return prev;
+        setActiveGroup((prevGroup) => {
+          if (prevGroup && userGroups.some((g) => g.id === prevGroup.id)) {
+            return prevGroup;
           }
-          const matched = userProfile?.group_id
-            ? userGroups.find((g) => g.id === userProfile.group_id)
-            : null;
-          return matched || userGroups[0];
+          const defaultGroup = fetchedMurabbiGroups[0] || fetchedMutarabbiGroups[0] || userGroups[0];
+          const isDefaultMurabbi = fetchedMurabbiGroups.some((g) => g.id === defaultGroup.id);
+          setActiveRoleContext(isAdmin ? 'admin' : isDefaultMurabbi ? 'murabbi' : 'mutarabbi');
+          return defaultGroup;
         });
       }
     } catch (err) {
@@ -75,12 +114,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.error('Error fetching profile:', error.message);
       } else {
         const userProf = data as Profile;
+        if (!userProf.roles) {
+          userProf.roles = ['mutarabbi'];
+        }
         setProfile(userProf);
         await fetchGroups(userProf);
       }
     } catch (error) {
       console.error('Error fetching profile:', error);
     }
+  };
+
+  const selectGroupWithRole = (group: Group, roleContext: RoleContext) => {
+    setActiveGroup(group);
+    setActiveRoleContext(roleContext);
   };
 
   useEffect(() => {
@@ -109,7 +156,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } else {
         setProfile(null);
         setGroups([]);
+        setMurabbiGroups([]);
+        setMutarabbiGroups([]);
         setActiveGroup(null);
+        setActiveRoleContext(null);
       }
       setLoading(false);
     });
@@ -150,20 +200,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       const newGroup = data as Group;
 
-      setGroups((prev) => {
-        const updated = [...prev, newGroup];
-        return updated.sort((a, b) => a.name.localeCompare(b.name));
+      // Add to group_members table
+      await supabase.from('group_members').insert({
+        user_id: profile.id,
+        group_id: newGroup.id,
+        role: 'murabbi',
       });
 
-      setActiveGroup(newGroup);
-
-      if (!profile.group_id) {
+      // Ensure 'murabbi' is in roles
+      const currentRoles = profile.roles || [];
+      if (!currentRoles.includes('murabbi')) {
+        const updatedRoles = [...currentRoles, 'murabbi' as UserRole];
         await supabase
           .from('profiles')
-          .update({ group_id: newGroup.id })
+          .update({ roles: updatedRoles })
           .eq('id', profile.id);
-        setProfile((prev) => (prev ? { ...prev, group_id: newGroup.id } : null));
+        setProfile((prev) => prev ? { ...prev, roles: updatedRoles } : null);
       }
+
+      setMurabbiGroups((prev) => [...prev, newGroup].sort((a, b) => a.name.localeCompare(b.name)));
+      setGroups((prev) => [...prev, newGroup].sort((a, b) => a.name.localeCompare(b.name)));
+
+      setActiveGroup(newGroup);
+      setActiveRoleContext('murabbi');
 
       return newGroup;
     } catch (err) {
@@ -179,7 +238,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     setProfile(null);
     setGroups([]);
+    setMurabbiGroups([]);
+    setMutarabbiGroups([]);
     setActiveGroup(null);
+    setActiveRoleContext(null);
     setLoading(false);
   };
 
@@ -190,9 +252,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         profile,
         groups,
+        murabbiGroups,
+        mutarabbiGroups,
         activeGroup,
+        activeRoleContext,
         loading,
         setActiveGroup,
+        selectGroupWithRole,
+        hasRole,
         refreshProfile,
         refreshGroups,
         createGroup,
